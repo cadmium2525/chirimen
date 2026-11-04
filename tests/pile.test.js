@@ -90,29 +90,62 @@ test('つまむ→計量機→包装で個体が複製も消失もしない', ()
   assert.equal(g2.money, g.money);
 });
 
+/** ちりモンの柱を上から掘って露出させる（掘った個体は出荷扱い） */
+function digTo(g, id) {
+  const pile = g.pile;
+  const c = pile.columnOf(id);
+  while (!pile.isExposed(id)) {
+    const top = pile.start[c] + pile.top[c];
+    pile.remove(top);
+    g.shipped++;
+  }
+}
+
 test('ちりモンを保護ケースへ運ぶと図鑑に登録、計量機から出荷すると誤出荷', () => {
   const pile = new PileModel(SEED);
   const g = new Game(pile);
-  const exposed = pile.chiriList.filter(({ id }) => pile.isExposed(id));
-  assert.ok(exposed.length >= 2, '最初から露出しているちりモンがいる');
-  const at = (id) => { const t = pile.fishTransform(id); return { x: t.x, y: t.y, z: t.z }; };
+  const [a, b] = pile.chiriList.filter(({ id }) => !pile.isExposed(id));
+  digTo(g, a.id); digTo(g, b.id);
+  const at = (id) => { const t = pile.visualTransform(id); return { x: t.x, y: t.y, z: t.z }; };
   // 1匹目：保護
-  assert.equal(g.pickFromPile(at(exposed[0].id), 0.05), 1);
-  assert.equal(g.hand[0], exposed[0].id);
+  assert.equal(g.pickFromPile(at(a.id), 0.05), 1);
+  assert.equal(g.hand[0], a.id);
   assert.equal(g.releaseToCase(), 1);
-  assert.equal(g.chiriState.get(exposed[0].id), 'protected');
+  assert.equal(g.chiriState.get(a.id), 'protected');
   assert.equal(g.stats.protected, 1);
   // 2匹目：計量機へ → 救出できる
-  g.pickFromPile(at(exposed[1].id), 0.05);
+  g.pickFromPile(at(b.id), 0.05);
+  assert.equal(g.hand[0], b.id);
   g.releaseToScale();
   assert.equal(g.pickFromScale(), 1);
-  assert.equal(g.hand[0], exposed[1].id);
+  assert.equal(g.hand[0], b.id);
   // もう一度入れて、しらすと一緒に包装 → 誤出荷
   g.releaseToScale();
   g.upgrades.add('glove4');
   while (g.scale.length < PACK_SIZE) { g.pickFromPile({ x: -2.9, y: pile.heightAt(-2.9, -0.5), z: -0.5 }, 0.1); g.releaseToScale(); }
   g.pack();
-  assert.equal(g.chiriState.get(exposed[1].id), 'misshipped');
+  assert.equal(g.chiriState.get(b.id), 'misshipped');
   assert.equal(g.stats.misshipped, 1);
-  assert.ok(g.invariant().ok);
+  assert.ok(g.invariant().ok, JSON.stringify(g.invariant()));
+});
+
+test('新しい山（v2）では開始時に表面へ露出しているちりモンはごくわずか', () => {
+  for (const seed of [1, 2, 3, 42, 12345, 777]) {
+    const p = new PileModel(seed);
+    const exposed = p.chiriList.filter(({ id }) => p.isExposed(id)).length;
+    assert.ok(exposed <= 3, `seed ${seed}: ${exposed}`);
+    assert.ok(p.chiriList.length > 120);
+  }
+});
+
+test('配置アルゴリズムの版がないセーブは v1 として同じ配置を再現する', () => {
+  const v1 = new PileModel(SEED, { chiriAlgo: 1 });
+  const data = v1.serialize();
+  delete data.chiriAlgo; // 旧セーブ
+  const restored = PileModel.deserialize(data);
+  assert.equal(restored.chiriAlgo, 1);
+  assert.deepEqual(restored.chiriList, v1.chiriList);
+  const v2 = PileModel.deserialize(new PileModel(SEED).serialize());
+  assert.equal(v2.chiriAlgo, 2);
+  assert.notDeepEqual(v2.chiriList, v1.chiriList);
 });

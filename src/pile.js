@@ -84,6 +84,7 @@ export class PileModel {
     for (let w = 0; w < this.words; w++) this.removedCount += popcount(this.removed[w]);
 
     // --- ちりモンの配置（開始時から決まっている）
+    this.chiriAlgo = opts.chiriAlgo ?? 2;
     this._placeChirimon();
 
     this.version = 0; // 変更のたびに増える（描画側のキャッシュ判定用）
@@ -265,39 +266,79 @@ export class PileModel {
   }
 
   // ===== ちりモン =====
+  // 配置アルゴリズムの版。v1（初期版）は表面付近に多く露出していた。
+  // 既存セーブの山は v1 のまま再現し（「最初からこの山にいた」を守る）、新しい山は v2 で生成する。
   _placeChirimon() {
-    const rng = mulberry32(this.seed ^ 0x5eed1234);
     this.chiri = new Map();      // id -> species index
     this.chiriByCol = new Map(); // c -> [id]
     this.chiriList = [];
+    if (this.chiriAlgo === 1) this._placeV1(); else this._placeV2();
+    this.chiriList.sort((a, b) => a.id - b.id);
+  }
+
+  _addChiri(c, k, si, used) {
+    const cnt = this.count(c);
+    const id = this.start[c] + Math.max(0, Math.min(k, cnt - 1));
+    if (used.has(id)) return false;
+    used.add(id);
+    this.chiri.set(id, si);
+    this.chiriList.push({ id, species: si });
+    if (!this.chiriByCol.has(c)) this.chiriByCol.set(c, []);
+    this.chiriByCol.get(c).push(id);
+    return true;
+  }
+
+  /** v1：浅めに偏った配置（開始時に 20匹前後が露出） */
+  _placeV1() {
+    const rng = mulberry32(this.seed ^ 0x5eed1234);
     const used = new Set();
-    let guaranteedShallow = 3;   // 始めから見つけやすい位置に数匹
+    let guaranteedShallow = 3;
     SPECIES.forEach((sp, si) => {
       const n = Math.max(1, Math.round(sp.base + (rng() * 2 - 1) * sp.spread));
       for (let i = 0; i < n; i++) {
         for (let tries = 0; tries < 50; tries++) {
-          // 体積に比例して柱を選ぶ（全IDから一様に1つ選び、その柱を使う）
-          const g = Math.floor(rng() * this.total);
-          const c = this.columnOf(g);
+          const c = this.columnOf(Math.floor(rng() * this.total));
           const cnt = this.count(c);
           if (cnt < 4) continue;
           let k;
-          const shallow = guaranteedShallow > 0 && si < 2 && this._reachableCol(c);
-          if (shallow) { k = Math.floor(rng() * 6); guaranteedShallow--; }
-          else k = Math.floor(cnt * Math.pow(rng(), 2.6)); // 浅めに偏るが、深くにも埋まる
-          const id = this.start[c] + Math.min(k, cnt - 1);
-          if (used.has(id)) continue;
-          used.add(id);
-          this.chiri.set(id, si);
-          this.chiriList.push({ id, species: si });
-          if (!this.chiriByCol.has(c)) this.chiriByCol.set(c, []);
-          this.chiriByCol.get(c).push(id);
-          break;
+          if (guaranteedShallow > 0 && si < 2 && this._reachableCol(c)) { k = Math.floor(rng() * 6); guaranteedShallow--; }
+          else k = Math.floor(cnt * Math.pow(rng(), 2.6));
+          if (this._addChiri(c, k, si, used)) break;
         }
       }
     });
-    this.chiriList.sort((a, b) => a.id - b.id);
   }
+
+  /**
+   * v2：表面にはほとんど出さない。
+   * - 開始時に露出しているのは「まぐれ」の 1〜2匹だけ（よくある種類、山のどこか）
+   * - 約45% は表面から 1.4〜3.5cm（表面を 0.2〜2.3cm 削ると出てくる層）
+   * - 残りは 3.5cm より深く、底に向かって少しずつ減る
+   */
+  _placeV2() {
+    const rng = mulberry32(this.seed ^ 0x7c41a2d9);
+    const used = new Set();
+    let lucky = 1 + Math.floor(rng() * 2);
+    SPECIES.forEach((sp, si) => {
+      const n = Math.max(1, Math.round((sp.base + (rng() * 2 - 1) * sp.spread) * 2.2));
+      for (let i = 0; i < n; i++) {
+        for (let tries = 0; tries < 80; tries++) {
+          const c = this.columnOf(Math.floor(rng() * this.total));
+          const cnt = this.count(c), h = this.h0[c];
+          if (cnt < 4 || h < 0.05) continue;
+          let depth;
+          if (lucky > 0 && si < 2) { depth = rng() * 0.004; lucky--; }
+          else if (rng() < 0.45) depth = 0.014 + rng() * 0.021;
+          else depth = 0.035 + (h - 0.035) * Math.pow(rng(), 1.6);
+          if (depth >= h) continue;
+          const k = Math.floor(cnt * (depth / h));
+          if (this._addChiri(c, k, si, used)) break;
+        }
+      }
+    });
+  }
+
+  _sumH0() { let s = 0; for (let c = 0; c < this.nCols; c++) s += this.h0[c]; return s; }
 
   _reachableCol(c) {
     const dx = this.colCenterX(c) - this.cx, dz = this.colCenterZ(c) - this.cz;
@@ -310,11 +351,12 @@ export class PileModel {
 
   /** 保存用 */
   serialize() {
-    return { seed: this.seed, total: this.total, removed: this.removed.buffer.slice(0) };
+    return { seed: this.seed, total: this.total, chiriAlgo: this.chiriAlgo, removed: this.removed.buffer.slice(0) };
   }
 
   static deserialize(data) {
-    return new PileModel(data.seed, { total: data.total, removed: data.removed });
+    // chiriAlgo が無いセーブは v1 で生成された山
+    return new PileModel(data.seed, { total: data.total, removed: data.removed, chiriAlgo: data.chiriAlgo ?? 1 });
   }
 
   /** 状態の指紋（再現性テスト用） */
