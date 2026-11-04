@@ -165,3 +165,9 @@ body.left-handed[data-btn] #btns { transform-origin: bottom left; }
 #btnRelease.charging::after { content: ''; position: absolute; inset: 0; background: rgba(255, 207, 74, 0.55); transform-origin: bottom; animation: charge 0.35s linear forwards; }
 @keyframes charge { from { transform: scaleY(0); } to { transform: scaleY(1); } }
 .settings .seg button { white-space: nowrap; }
+
+/* ---------- P6：ガイド矢印 ---------- */
+#guide { position: absolute; transform: translate(-50%, -50%); display: flex; flex-direction: column; align-items: center; gap: 2px; pointer-events: none;
+  color: var(--accent); text-shadow: 0 1px 3px #000; font-weight: 700; }
+#guide .arrow { font-size: 1.8em; line-height: 1; display: inline-block; }
+#guide .label { font-size: 0.8em; background: rgba(10,20,28,0.75); border-radius: 6px; padding: 0 0.4em; color: #fff; }

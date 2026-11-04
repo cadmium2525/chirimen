@@ -147,6 +147,7 @@ export const DEFAULT_SETTINGS = {
   // P5：スマホ操作・画質の詳細
   btnSize: 'm', holdRelease: false, haptics: true,
   qRes: 'auto', qDensity: 'preset', qShadows: 'preset', qDistance: 'preset', showFps: false,
+  guide: true,
 };
 
 export function loadSettings() {

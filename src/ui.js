@@ -1,5 +1,5 @@
 // HUD・メニュー・図鑑・記録・設定・ショップ
-import { UPGRADES, TOTAL_FISH, PACK_SIZE, PACK_PRICE } from './config.js';
+import { UPGRADES, TOTAL_FISH, PACK_SIZE, PACK_PRICE, GAME_VERSION, CHANGELOG } from './config.js';
 import { SPECIES } from './chirimonData.js';
 
 const $ = (id) => document.getElementById(id);
@@ -94,7 +94,7 @@ export class UI {
     const { game, settings, onSetting, onNewPile, touch } = this.ctx;
     if (tab === 'dex') body.innerHTML = this._dexHTML(game);
     if (tab === 'stats') body.innerHTML = this._statsHTML(game);
-    if (tab === 'help') body.innerHTML = `<h2>操作</h2><div class="controls-help">${helpHTML(touch)}</div>${rulesHTML()}`;
+    if (tab === 'help') body.innerHTML = `<h2>操作</h2><div class="controls-help">${helpHTML(touch)}</div>${rulesHTML()}<h3>更新履歴</h3><ul class="small">${CHANGELOG.map(([v, t]) => `<li><b>v${v}</b> ${t}</li>`).join('')}</ul><p class="muted small">しらすの山 v${GAME_VERSION}　/　素材はすべてコードで自作</p>`;
     if (tab === 'settings') {
       body.innerHTML = this._settingsHTML(settings);
       body.querySelectorAll('[data-set]').forEach((el) => {
@@ -194,6 +194,7 @@ export class UI {
       <label>ちりモン強調</label>${seg('aid', [['auto', '自動'], ['on', 'ON'], ['off', 'OFF']])}
       <label>文字サイズ</label>${seg('textSize', [['s', '小'], ['m', '中'], ['l', '大']])}
       <label>効果音</label>${seg('sound', [['true', 'ON'], ['false', 'OFF']])}
+      <label>目標の矢印</label>${seg('guide', [['true', 'ON'], ['false', 'OFF']])}
     </div>
     ${touch ? `<h3>スマホ</h3><div class="settings">
       <label>ボタン配置</label>${seg('layout', [['right', '右手'], ['left', '左手']])}

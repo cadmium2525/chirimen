@@ -6,7 +6,19 @@
   <meta name="theme-color" content="#123" />
   <title>しらすの山</title>
   <meta name="description" content="一人称3D × 物流・工場自動化 × ちりめんモンスター収集。1,000万匹のしらすの山から、ちりモンを見つけ出せ。" />
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%232f6fb3'/%3E%3Cpath d='M12 34 Q32 22 50 32 L56 28 L54 36 L56 42 L50 36 Q32 44 12 34Z' fill='%23f4efe4'/%3E%3Ccircle cx='17' cy='32' r='2' fill='%23111'/%3E%3C/svg%3E" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icon-180.png" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="しらすの山" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="しらすの山" />
+  <meta property="og:description" content="1,000万匹のしらすの山から、最初からそこにいた「ちりモン」を見つけ出す。一人称3D × 工場自動化 × 収集。ブラウザで無料。" />
+  <meta property="og:url" content="https://cadmium2525.github.io/chirimen/" />
+  <meta property="og:image" content="https://cadmium2525.github.io/chirimen/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
 </head>
 <body>
   <div id="app">
@@ -50,7 +62,7 @@
         </div>
         <div id="startInfo" class="muted"></div>
         <div class="controls-help" id="startHelp"></div>
-        <p class="muted small">セーブはこのブラウザ内（IndexedDB）に自動保存されます。</p>
+        <p class="muted small">セーブはこのブラウザ内に自動保存されます。設定から書き出して別の端末へ移せます。　<span id="version"></span></p>
       </div>
     </div>
 

@@ -84,7 +84,7 @@ export class PileModel {
     for (let w = 0; w < this.words; w++) this.removedCount += popcount(this.removed[w]);
 
     // --- ちりモンの配置（開始時から決まっている）
-    this.chiriAlgo = opts.chiriAlgo ?? 2;
+    this.chiriAlgo = opts.chiriAlgo ?? 3;
     this._placeChirimon();
 
     this.version = 0; // 変更のたびに増える（描画側のキャッシュ判定用）
@@ -272,7 +272,9 @@ export class PileModel {
     this.chiri = new Map();      // id -> species index
     this.chiriByCol = new Map(); // c -> [id]
     this.chiriList = [];
-    if (this.chiriAlgo === 1) this._placeV1(); else this._placeV2();
+    if (this.chiriAlgo === 1) this._placeV1();
+    else if (this.chiriAlgo === 2) this._placeV2();
+    else this._placeV3();
     this.chiriList.sort((a, b) => a.id - b.id);
   }
 
@@ -336,6 +338,52 @@ export class PileModel {
         }
       }
     });
+  }
+
+  /**
+   * v3：v2 を土台に、初めての人でも確実に出会えるよう調整。
+   * - 「まぐれ」で露出している1〜2匹は、作業場から見て山の裏側に置く（最初の数歩では見つからない）
+   * - 計量機側の斜面（初めて掘る場所）の 1.5〜3cm の深さに、よくある種類を数匹
+   */
+  _placeV3() {
+    const rng = mulberry32(this.seed ^ 0x3a91c5e7);
+    const used = new Set();
+    let lucky = 1 + Math.floor(rng() * 2);
+    const polar = (c) => {
+      const dx = this.colCenterX(c) - this.cx, dz = this.colCenterZ(c) - this.cz;
+      return { r: Math.hypot(dx, dz) / this.radius, a: Math.atan2(dz, dx) };
+    };
+    SPECIES.forEach((sp, si) => {
+      const n = Math.max(1, Math.round((sp.base + (rng() * 2 - 1) * sp.spread) * 2.2));
+      for (let i = 0; i < n; i++) {
+        for (let tries = 0; tries < 80; tries++) {
+          const c = this.columnOf(Math.floor(rng() * this.total));
+          const cnt = this.count(c), h = this.h0[c];
+          if (cnt < 4 || h < 0.05) continue;
+          let depth;
+          if (lucky > 0 && si < 2) {
+            if (Math.abs(polar(c).a) < Math.PI * 0.6) continue; // 裏側だけ
+            depth = rng() * 0.004; lucky--;
+          } else if (rng() < 0.45) depth = 0.016 + rng() * 0.019;
+          else depth = 0.035 + (h - 0.035) * Math.pow(rng(), 1.6);
+          if (depth >= h) continue;
+          if (this._addChiri(c, Math.floor(cnt * (depth / h)), si, used)) break;
+        }
+      }
+    });
+    // 計量機側の斜面（+X 側・角度±30°・半径の55〜92%）に「初めての出会い」用
+    const firstSpecies = [0, 0, 1, 1, 2, 0, 1, 0, 3];
+    for (const si of firstSpecies) {
+      for (let tries = 0; tries < 200; tries++) {
+        const c = this.columnOf(Math.floor(rng() * this.total));
+        const { r, a } = polar(c);
+        if (r < 0.55 || r > 0.92 || Math.abs(a) > Math.PI / 6) continue;
+        const cnt = this.count(c), h = this.h0[c];
+        if (cnt < 4 || h < 0.06) continue;
+        const depth = 0.015 + rng() * 0.015;
+        if (this._addChiri(c, Math.floor(cnt * (depth / h)), si, used)) break;
+      }
+    }
   }
 
   _sumH0() { let s = 0; for (let c = 0; c < this.nCols; c++) s += this.h0[c]; return s; }

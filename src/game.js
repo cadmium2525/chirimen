@@ -329,6 +329,19 @@ export class Game {
   }
 
   // ===== 集計 =====
+  /** 1山を処理し尽くした（山にも手・床・計量機・設備にも個体が残っていない） */
+  isCleared() {
+    const p = this.pile;
+    return p.removedCount >= p.total && !this.hand.length && !this.floor.length && !this.scale.length && !this.factory.count();
+  }
+
+  /** この山の成績（見逃し数・発見数・売上・処理時間） */
+  pileResult() {
+    const per = this.chiriCounts();
+    const sum = (k) => per.reduce((a, b) => a + b[k], 0);
+    return { time: this.pileTime || 0, packs: this.packs, sales: this.packs * PACK_PRICE, protected: sum('protected'), misshipped: sum('misshipped'), total: sum('total') };
+  }
+
   chiriCounts() {
     const per = SPECIES.map(() => ({ total: 0, protected: 0, misshipped: 0 }));
     for (const { id, species } of this.pile.chiriList) {
@@ -356,7 +369,7 @@ export class Game {
   startNewPile(pile) {
     this.pile = pile;
     this.hand = []; this.floor = []; this.scale = [];
-    this.shipped = 0; this.packs = 0;
+    this.shipped = 0; this.packs = 0; this.pileTime = 0; this.clearShown = false;
     this.chiriState = new Map();
     this.tool = 'hand';
     this.factory.clearContents(); // 設備は引き継ぐ（中身は前の山の個体なので片付ける）
@@ -377,6 +390,7 @@ export class Game {
       chiriState: [...this.chiriState],
       stats: this.stats,
       tutorial: this.tutorial,
+      pileTime: this.pileTime || 0,
       factory: this.factory.toJSON(),
     };
   }
@@ -393,5 +407,6 @@ export class Game {
     this.chiriState = new Map(s.chiriState || []);
     this.stats = { ...this.stats, ...(s.stats || {}) };
     this.tutorial = s.tutorial || 0;
+    this.pileTime = s.pileTime || 0;
   }
 }

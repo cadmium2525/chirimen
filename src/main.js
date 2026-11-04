@@ -16,7 +16,7 @@ import { SPECIES } from './chirimonData.js';
 import { sfx, setSound } from './audio.js';
 import { FactoryView } from './factoryView.js';
 import { BuildScreen } from './buildUI.js';
-import { MACHINES, POWER_PANEL, PRIO_NAMES } from './config.js';
+import { MACHINES, POWER_PANEL, PRIO_NAMES, GAME_VERSION } from './config.js';
 
 const INTERACT_DIST = 2.7;
 const ASSIST_R = { low: 0.035, mid: 0.06, high: 0.09 };
@@ -168,6 +168,77 @@ const K = () => isTouch
   ? { pick: '［つまむ］', rel: '［はなす］', act: '［調べる］' }
   : { pick: '左クリック', rel: '右クリック', act: 'E' };
 
+// ---------- ガイド（目標の場所を示す矢印） ----------
+const beacon = new THREE.Group();
+{
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 12), new THREE.MeshBasicMaterial({ color: '#ffcf4a' }));
+  cone.rotation.x = Math.PI;
+  beacon.add(cone);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.12, 0.012, 6, 24), new THREE.MeshBasicMaterial({ color: '#ffcf4a' }));
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = -0.18;
+  beacon.add(ring);
+  beacon.visible = false;
+  scene.add(beacon);
+}
+const guideEl = document.createElement('div');
+guideEl.id = 'guide';
+guideEl.innerHTML = '<span class="arrow">➤</span><span class="label"></span>';
+document.getElementById('hud').appendChild(guideEl);
+const _gv = new THREE.Vector3();
+
+/** いま向かうべき場所（なければ null） */
+function guideTarget() {
+  if (!settings.guide) return null;
+  const pileSpot = { x: pile.cx + pile.radius - 0.5, y: 0.7, z: 0, label: 'しらすの山' };
+  const scaleSpot = { x: LAYOUT.scale.x, y: 1.05, z: LAYOUT.scale.z, label: '計量機' };
+  if (game.heldChirimon().length) return { x: LAYOUT.case.x, y: 1.35, z: LAYOUT.case.z, label: '保護ケース' };
+  // まだ一度もちりモンを保護していない人には、近くで露出した最初の1匹だけ教える
+  const firstTime = !SPECIES.some((sp) => game.dex[sp.id]?.protected);
+  if (firstTime && game.tutorial >= 4) {
+    let best = null, bd = 2.6;
+    for (const m of view.chiriMeshes.values()) {
+      const d = Math.hypot(m.position.x - player.x, m.position.z - player.z);
+      if (d < bd) { bd = d; best = m; }
+    }
+    if (best) return { x: best.position.x, y: best.position.y + 0.12, z: best.position.z, label: '何かいる…！', small: true };
+  }
+  const t = game.tutorial;
+  if (t === 0) return pileSpot;
+  if (t === 1 || t === 2) return game.hand.length || game.scale.length >= PACK_SIZE ? scaleSpot : pileSpot;
+  if (t === 3) {
+    if (game.money >= UPGRADES[0].price) return { x: LAYOUT.terminal.x, y: 1.5, z: LAYOUT.terminal.z, label: '購入端末' };
+    return game.hand.length || game.scale.length >= PACK_SIZE ? scaleSpot : pileSpot;
+  }
+  return null;
+}
+
+function updateGuide() {
+  const g = guideTarget();
+  const near = g && Math.hypot(g.x - player.x, g.z - player.z) < (g.small ? 0.3 : 1.3);
+  beacon.visible = !!g && !near;
+  if (!g || near) { guideEl.hidden = true; return; }
+  const bob = Math.sin(time * 3) * 0.05;
+  beacon.position.set(g.x, g.y + 0.35 + bob, g.z);
+  beacon.scale.setScalar(g.small ? 0.45 : 1);
+  beacon.rotation.y = time * 1.5;
+  // 画面の外なら、画面の端に矢印
+  _gv.set(g.x, g.y, g.z).project(camera);
+  const behind = _gv.z > 1;
+  let x = _gv.x, y = _gv.y;
+  if (behind) { x = -x; y = -y; }
+  const onScreen = !behind && Math.abs(x) < 0.85 && Math.abs(y) < 0.8;
+  guideEl.hidden = onScreen;
+  if (onScreen) return;
+  const ang = Math.atan2(y, x);
+  const k = Math.min(0.85 / Math.abs(Math.cos(ang) || 1e-6), 0.75 / Math.abs(Math.sin(ang) || 1e-6));
+  const ex = Math.cos(ang) * k, ey = Math.sin(ang) * k;
+  guideEl.style.left = `${(ex * 0.5 + 0.5) * 100}%`;
+  guideEl.style.top = `${(-ey * 0.5 + 0.5) * 100}%`;
+  guideEl.querySelector('.arrow').style.transform = `rotate(${-ang}rad)`;
+  guideEl.querySelector('.label').textContent = g.label;
+}
+
 function updatePrompt() {
   const k = K();
   const t = target;
@@ -296,7 +367,7 @@ const tutorialSteps = () => {
     `<b>計量機</b>（赤い看板）の受け皿を狙って <b>${k.rel}</b> ではなす`,
     `${PACK_SIZE}匹（${(PACK_SIZE * GRAM_PER_FISH).toFixed(1)}g）たまったら、計量機を狙って <b>${k.act}</b> で包装・出荷`,
     `<b>購入端末</b>で <b>${k.act}</b>。手袋を買って、一度に運べる量を増やそう`,
-    '山を削ると、埋まっていた<b>ちりモン</b>が姿を現す。つまんで<b>保護ケース</b>へ運ぼう',
+    '山を削ると、埋まっていた<b>ちりモン</b>が姿を現す（しばらく掘る必要がある。斜面の<b>あちこち</b>を削ってみよう）。見つけたらつまんで<b>保護ケース</b>へ',
   ];
 };
 
@@ -513,6 +584,46 @@ function openShop() {
   ui.openShop(game, (id) => game.buy(id));
 }
 
+// ---------- 短期クリア：1山を処理し尽くした（企画書 1.3） ----------
+function showClear() {
+  game.clearShown = true;
+  pause();
+  input.exitLock();
+  const r = game.pileResult();
+  const fmtT = (t) => `${Math.floor(t / 3600)}時間${Math.floor((t % 3600) / 60)}分`;
+  const d = document.createElement('div');
+  d.className = 'screen';
+  d.innerHTML = `<div class="panel title-panel"><h1 style="font-size:1.8em">山をすべて処理した！</h1>
+    <p class="muted">シード ${pile.seed} の 10,000,000匹</p>
+    <table class="stats">
+      <tr><td>処理時間</td><td>${fmtT(r.time)}</td></tr>
+      <tr><td>出荷</td><td>${r.packs.toLocaleString()} パック（${r.sales.toLocaleString()}円）</td></tr>
+      <tr><td>ちりモン発見（保護）</td><td>${r.protected} / ${r.total}</td></tr>
+      <tr><td>見逃し（誤出荷）</td><td>${r.misshipped}</td></tr>
+    </table>
+    <div class="row"><button class="primary" data-a="new">新しい山へ</button><button data-a="close">このまま眺める</button></div></div>`;
+  d.addEventListener('click', (e) => {
+    const a = e.target.closest('button')?.dataset.a;
+    if (!a) return;
+    d.remove();
+    if (a === 'new') onNewPile(); else resume();
+  });
+  document.getElementById('app').appendChild(d);
+  sfx.find();
+}
+
+// ---------- エラー時（進行状況を守る） ----------
+let errorShown = false;
+function onFatal(e) {
+  console.error(e);
+  if (errorShown || !playing) return;
+  errorShown = true;
+  persist();
+  ui.toast('エラーが発生しました。進行状況は保存しました。おかしな動きがあれば再読み込みしてください', 'bad');
+}
+addEventListener('error', (e) => onFatal(e.error || e.message));
+addEventListener('unhandledrejection', (e) => onFatal(e.reason));
+
 // ---------- セーブの書き出し・読み込み（PC ⇄ スマホ） ----------
 async function doExport() {
   try {
@@ -680,6 +791,8 @@ function frame(now) {
       target = computeTarget();
     }
     updatePrompt();
+    updateGuide();
+    game.pileTime = (game.pileTime || 0) + dt;
     game.stats.playTime += dt;
     game.factory.tick(dt);
     if (hudDirty) {
@@ -706,6 +819,7 @@ function frame(now) {
   if (perfT > 0.5 && view.stats) {
     perfT = 0;
     if (game) ui.setPower(game.factory.machines.size ? game.factory.powerSummary() : null);
+    if (game && playing && !paused && game.isCleared() && !game.clearShown) showClear();
     ui.el.perf.textContent = `${quality.label} | ${dynres.fps ? Math.round(dynres.fps) : '--'}fps | 近景${view.stats.near} 中景${view.stats.mid} | 解像度×${dynres.scale.toFixed(2)}`;
   }
   requestAnimationFrame(frame);
@@ -729,6 +843,7 @@ async function boot() {
   if (saved && loaded.fromBackup) pendingNotes.push('最新のセーブが読めなかったため、ひとつ前のセーブから復元しました');
   const startHelp = document.getElementById('startHelp');
   startHelp.innerHTML = helpHTML(isTouch);
+  document.getElementById('version').textContent = `v${GAME_VERSION}`;
   const btnC = document.getElementById('btnContinue');
   const btnN = document.getElementById('btnNew');
   if (saved) {

@@ -129,7 +129,7 @@ test('ちりモンを保護ケースへ運ぶと図鑑に登録、計量機か�
   assert.ok(g.invariant().ok, JSON.stringify(g.invariant()));
 });
 
-test('新しい山（v2）では開始時に表面へ露出しているちりモンはごくわずか', () => {
+test('新しい山では開始時に表面へ露出しているちりモンはごくわずか', () => {
   for (const seed of [1, 2, 3, 42, 12345, 777]) {
     const p = new PileModel(seed);
     const exposed = p.chiriList.filter(({ id }) => p.isExposed(id)).length;
@@ -145,7 +145,10 @@ test('配置アルゴリズムの版がないセーブは v1 として同じ配�
   const restored = PileModel.deserialize(data);
   assert.equal(restored.chiriAlgo, 1);
   assert.deepEqual(restored.chiriList, v1.chiriList);
-  const v2 = PileModel.deserialize(new PileModel(SEED).serialize());
-  assert.equal(v2.chiriAlgo, 2);
-  assert.notDeepEqual(v2.chiriList, v1.chiriList);
+  const v3 = PileModel.deserialize(new PileModel(SEED).serialize());
+  assert.equal(v3.chiriAlgo, 3, '新しい山は v3');
+  assert.notDeepEqual(v3.chiriList, v1.chiriList);
+  const v2 = PileModel.deserialize(new PileModel(SEED, { chiriAlgo: 2 }).serialize());
+  assert.equal(v2.chiriAlgo, 2, 'v2 の山は v2 のまま');
+  assert.deepEqual(v2.chiriList, new PileModel(SEED, { chiriAlgo: 2 }).chiriList);
 });
