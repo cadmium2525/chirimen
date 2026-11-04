@@ -129,3 +129,15 @@ table.stats td:last-child { text-align: right; font-variant-numeric: tabular-num
   .tbtn { width: 60px; height: 60px; } .tbtn.big { width: 80px; height: 80px; } .tbtn.small { width: 48px; height: 48px; }
   h1 { font-size: 2em; }
 }
+
+/* ---------- 建設画面 ---------- */
+.tbtn.menu.build { top: calc(max(10px, env(safe-area-inset-top)) + 98px); font-size: 0.72em; }
+#build { padding: 8px; align-items: stretch; background: rgba(5, 12, 18, 0.9); }
+.build-wrap { display: flex; flex-direction: column; width: 100%; max-width: 1200px; margin: 0 auto; gap: 6px; }
+.build-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.build-top .grow { flex: 1; }
+#bCanvas { flex: 1; min-height: 200px; width: 100%; border-radius: 10px; touch-action: none; background: #1a252d; cursor: crosshair; }
+.build-tools { display: flex; gap: 6px; flex-wrap: wrap; }
+.build-tools button { padding: 0.35em 0.7em; line-height: 1.15; font-size: 0.85em; }
+.build-tools button.on { background: var(--accent); color: #1d1a10; font-weight: 700; }
+.build-hint { min-height: 1.2em; }

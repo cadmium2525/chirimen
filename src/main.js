@@ -14,6 +14,9 @@ import { loadWorld, saveWorld, loadDex, saveDex, loadSettings, saveSettings } fr
 import { randomSeed } from './rng.js';
 import { SPECIES } from './chirimonData.js';
 import { sfx, setSound } from './audio.js';
+import { FactoryView } from './factoryView.js';
+import { BuildScreen } from './buildUI.js';
+import { MACHINES } from './config.js';
 
 const INTERACT_DIST = 2.7;
 const ASSIST = { low: 0.035, mid: 0.06, high: 0.09 };
@@ -42,10 +45,14 @@ let quality = resolvePreset(settings.quality, isTouch);
 const world = buildWorld(scene, quality);
 const view = new PileView(scene, quality);
 const dynres = new DynamicResolution(renderer, quality);
+const fview = new FactoryView(scene);
+let obstacles = world.obstacles, obstaclesVersion = -1;
+const build = new BuildScreen(() => resume());
 
 let pile = null, game = null, player = null;
 let playing = false, paused = true, dirty = false;
 let target = { kind: null };
+let hudDirty = false, hudT = 0;
 let time = 0;
 
 // ---------- 手元の表示 ----------
@@ -132,8 +139,13 @@ function computeTarget() {
   if (ph) res = { kind: 'pile', dist: ph.t, point: ph.p };
   raycaster.set(o, dir);
   raycaster.far = 8;
-  const hits = raycaster.intersectObjects(world.targets, false);
-  if (hits.length && hits[0].distance < res.dist) res = { kind: hits[0].object.userData.kind, dist: hits[0].distance, point: hits[0].point };
+  const hits = raycaster.intersectObjects(world.targets.concat(fview.targets), false);
+  if (hits.length && hits[0].distance < res.dist) {
+    const u = hits[0].object.userData;
+    res = { kind: u.kind, dist: hits[0].distance, point: hits[0].point };
+    if (u.kind === 'machine') res.machine = game.factory.get(u.i, u.j);
+    if (u.kind === 'machine' && !res.machine) res.kind = null;
+  }
   if (dir.y < -0.01) {
     const t = -o.y / dir.y;
     if (t < res.dist && t < 10) res = { kind: 'floor', dist: t, point: new THREE.Vector3(o.x + dir.x * t, 0, o.z + dir.z * t) };
@@ -189,6 +201,16 @@ function updatePrompt() {
     cls = 'can';
     lines.push(`${k.act}: 購入端末を使う`);
     act = 'ショップ';
+  } else if (t.kind === 'machine' && t.dist <= INTERACT_DIST) {
+    const m = t.machine, f = game.factory;
+    const def = MACHINES[m.type];
+    const n = f.contents(m).length;
+    cls = f.hasChiri(m) ? 'chiri' : 'can';
+    lines.push(`${def.name}（${m.on ? '稼働中' : '停止中'}）${n ? ` 中身 ${n}匹` : ''}`);
+    if (holding && m.type !== 'crane') lines.push(`${k.rel}: ${def.name}に入れる`);
+    if (n && m.type !== 'crane') lines.push(`${k.pick}: 取り出す${f.hasChiri(m) ? '（何かいる…！）' : ''}`);
+    lines.push(`${k.act}: ${m.on ? '止める' : '動かす'}`);
+    act = m.on ? '停止' : '稼働';
   }
   ui.setPrompt(lines.join('\n'), cls);
   if (isTouch) ui.setActionLabel(act);
@@ -209,6 +231,9 @@ function doPick() {
     if (game.pickFromScale()) pickAnim = 1;
     return;
   }
+  if (t.kind === 'machine' && t.dist <= INTERACT_DIST) {
+    if (game.pickFromMachine(t.machine)) pickAnim = 1;
+  }
 }
 
 function doRelease() {
@@ -217,6 +242,7 @@ function doRelease() {
   let n = 0;
   if (t.kind === 'scale' && t.dist <= INTERACT_DIST) n = game.releaseToScale();
   else if (t.kind === 'case' && t.dist <= INTERACT_DIST) n = game.releaseToCase();
+  else if (t.kind === 'machine' && t.dist <= INTERACT_DIST) n = game.releaseToMachine(t.machine);
   else if ((t.kind === 'pile' || t.kind === 'floor') && t.dist <= REACH) n = game.releaseToFloor(t.point);
   else {
     const fx = -Math.sin(player.yaw), fz = -Math.cos(player.yaw);
@@ -231,6 +257,14 @@ function doInteract() {
   if (t.kind === 'scale') game.pack();
   if (t.kind === 'terminal') openShop();
   if (t.kind === 'case') openMenu('dex');
+  if (t.kind === 'machine') game.factory.toggle(t.machine);
+}
+
+function openBuild() {
+  pause();
+  input.exitLock();
+  fview.showRings(true);
+  build.open({ factory: game.factory, pile, player, game, onChange: () => ui.updateHUD(game) });
 }
 
 // ---------- ゲームのイベント ----------
@@ -251,7 +285,9 @@ function refreshObjective() {
   else {
     const found = SPECIES.filter((sp) => game.dex[sp.id]?.protected).length;
     const next = UPGRADES.find((u) => !game.has(u.id) && (!u.requires || game.has(u.requires)));
-    ui.setObjective(`図鑑 <b>${found}/${SPECIES.length}</b> 種` + (next ? `<br><span class="small muted">次の道具：${next.name}（${next.price.toLocaleString()}円）</span>` : ''));
+    const buildHint = !game.factory.machines.size && game.money >= 600
+      ? `<br><span class="small">${isTouch ? '［建設］' : '<b>B</b>'}で建設画面。ホッパー→コンベア→計量機／包装機とつなげば自動で出荷できる</span>` : '';
+    ui.setObjective(`図鑑 <b>${found}/${SPECIES.length}</b> 種` + (next ? `<br><span class="small muted">次の道具：${next.name}（${next.price.toLocaleString()}円）</span>` : '') + buildHint);
   }
 }
 
@@ -292,6 +328,11 @@ function wireGame() {
         advanceTutorial(2);
         break;
       case 'released': if (p.to === 'scale') advanceTutorial(1); break;
+      case 'machinePacked': hudDirty = true; break;
+      case 'machineGrab':
+        if (p.chiri && game.has('loupe')) { ui.toast('ルーペ：クレーンが何かをつかんだ…！ ラインを確かめよう', 'find'); sfx.find(); }
+        break;
+      case 'machineToggle': ui.toast(`${MACHINES[p.machine.type].name}を${p.machine.on ? '動かした' : '止めた'}`); break;
       case 'bought': ui.toast(`「${p.upgrade.name}」を手に入れた！`, 'good'); sfx.buy(); advanceTutorial(3); refreshObjective(); break;
       case 'toast': ui.toast(p.text); sfx.deny(); break;
       case 'tool': updateHandVisual(); break;
@@ -301,6 +342,7 @@ function wireGame() {
         break;
       case 'changed':
         dirty = true;
+        if (game.tutorial >= 5) refreshObjective();
         ui.updateHUD(game);
         view.updateFloor(game);
         view.updateCase(game, world);
@@ -336,6 +378,8 @@ function setupGame(saved, dex) {
     player = new Player(LAYOUT.spawn);
   }
   view.setPile(pile);
+  game.factory.setStaticBoxes(world.obstacles);
+  fview.version = -1;
   wireGame();
   refreshAll();
 }
@@ -361,6 +405,7 @@ function beginPlay() {
 }
 
 function resume() {
+  fview.showRings(false);
   ui.closeMenu();
   ui.closeShop();
   paused = false;
@@ -475,7 +520,11 @@ function frame(now) {
     const sens = (isTouch ? settings.touchSens : settings.sens) * 0.0022;
     player.yaw -= inp.look.x * sens;
     player.pitch = Math.max(-1.45, Math.min(1.45, player.pitch - inp.look.y * sens));
-    player.update(dt, inp.move, game.speedMul(), pile, world.obstacles);
+    if (obstaclesVersion !== game.factory.version) {
+      obstaclesVersion = game.factory.version;
+      obstacles = world.obstacles.concat(game.factory.obstacles());
+    }
+    player.update(dt, inp.move, game.speedMul(), pile, obstacles);
     camera.position.set(player.x, player.eyeY(settings.bob), player.z);
     camera.rotation.set(player.pitch, player.yaw, 0);
     target = computeTarget();
@@ -487,15 +536,22 @@ function frame(now) {
       else if (a === 'tool2') game.setTool('scoop');
       else if (a === 'toolToggle') game.setTool(game.tool === 'hand' ? 'scoop' : 'hand');
       else if (a === 'dex') openMenu('dex');
+      else if (a === 'build') openBuild();
       if (paused) break;
       target = computeTarget();
     }
     updatePrompt();
     game.stats.playTime += dt;
+    game.factory.tick(dt);
+    if (hudDirty) {
+      hudT += dt;
+      if (hudT > 0.25) { hudT = 0; hudDirty = false; ui.updateHUD(game); view.updatePacks(game.packs); }
+    }
   }
   if (game) {
     const aid = game.has('loupe') || settings.aid === 'on' || (settings.aid === 'auto' && quality.aid);
     view.update(camera.position, game, time, aid);
+    fview.update(game.factory, pile, paused ? 0 : dt);
   }
   // 手の動き
   pickAnim = Math.max(0, pickAnim - dt * 4);

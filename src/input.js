@@ -17,7 +17,7 @@ export class Input {
       if (!this.enabled) return;
       if (e.repeat) return;
       this.keys.add(e.code);
-      const map = { KeyQ: 'release', KeyE: 'interact', KeyF: 'interact', Digit1: 'tool1', Digit2: 'tool2', Tab: 'dex', KeyR: 'release' };
+      const map = { KeyQ: 'release', KeyE: 'interact', KeyF: 'interact', Digit1: 'tool1', Digit2: 'tool2', Tab: 'dex', KeyR: 'release', KeyB: 'build' };
       if (map[e.code]) { this.actions.push(map[e.code]); e.preventDefault(); }
     });
     addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -118,6 +118,7 @@ export class Input {
     bind(ui.btnRelease, 'release');
     bind(ui.btnAction, 'interact');
     bind(ui.btnTool, 'toolToggle');
+    bind(ui.btnBuild, 'build');
   }
 
   /** 1フレーム分の入力をまとめて取り出す */

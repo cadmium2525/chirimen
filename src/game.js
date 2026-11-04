@@ -1,11 +1,12 @@
 // ゲーム状態と行動（つまむ・はなす・計量・包装・保護）。three.js 非依存。
 //
 // 山から取り除かれた個体は、必ず次のどこか1か所だけに存在する（複製しない）:
-//   手（hand） / 床（floor） / 計量機（scale） / 出荷済み（shipped） / 保護ケース（protected・ちりモンのみ）
+//   手（hand） / 床（floor） / 計量機（scale） / 搬送設備（factory） / 出荷済み（shipped） / 保護ケース（protected・ちりモンのみ）
 // invariant() でこの保存則を検査できる。
 
 import { PACK_SIZE, PACK_PRICE, UPGRADES } from './config.js';
 import { SPECIES } from './chirimonData.js';
+import { Factory } from './factory.js';
 
 const UPG = Object.fromEntries(UPGRADES.map((u) => [u.id, u]));
 
@@ -26,6 +27,7 @@ export class Game {
     this.tutorial = 0;
     this.dex = dex || {};  // 恒久図鑑 speciesId -> {protected, misshipped}
     if (saved) this._load(saved);
+    this.factory = new Factory(this, saved?.factory);
   }
 
   on(fn) { this.listeners.push(fn); }
@@ -46,7 +48,16 @@ export class Game {
     return cap;
   }
 
-  capacity() { return this.tool === 'scoop' ? this.scoopCap() : this.handCap(); }
+  holdCap() {
+    let cap = 0;
+    for (const u of UPGRADES) if (u.holdCap && this.has(u.id)) cap = Math.max(cap, u.holdCap);
+    return cap;
+  }
+
+  /** 持てる上限（スコップは運搬箱・台車でためられる） */
+  capacity() { return this.tool === 'scoop' ? Math.max(this.scoopCap(), this.holdCap()) : this.handCap(); }
+  /** 1回でつかめる／すくえる数 */
+  perAction() { return this.tool === 'scoop' ? this.scoopCap() : this.handCap(); }
   speedMul() { return this.has('boots') ? 1.35 : 1; }
 
   setTool(tool) {
@@ -84,7 +95,7 @@ export class Game {
    * @param {number} assist 照準補助の半径
    */
   pickFromPile(p, assist = 0.06) {
-    const room = this.capacity() - this.hand.length;
+    const room = Math.min(this.capacity() - this.hand.length, this.perAction());
     if (room <= 0) { this.emit('toast', { text: 'これ以上持てない' }); return 0; }
     const pile = this.pile;
     // 照準に最も近い露出個体（ちりモンは体が大きいので当たりやすい）
@@ -113,7 +124,7 @@ export class Game {
 
   /** 床に落ちている個体をつまむ */
   pickFromFloor(p, radius = 0.14) {
-    const room = this.capacity() - this.hand.length;
+    const room = Math.min(this.capacity() - this.hand.length, this.perAction());
     if (room <= 0) { this.emit('toast', { text: 'これ以上持てない' }); return 0; }
     const near = [];
     for (let i = 0; i < this.floor.length; i++) {
@@ -138,7 +149,7 @@ export class Game {
 
   /** 計量機からつまみ出す（混入したちりモンを優先して救出） */
   pickFromScale() {
-    const room = this.capacity() - this.hand.length;
+    const room = Math.min(this.capacity() - this.hand.length, this.perAction());
     if (room <= 0) { this.emit('toast', { text: 'これ以上持てない' }); return 0; }
     if (!this.scale.length) return 0;
     const chiri = this.scale.filter((id) => this.pile.isChirimon(id));
@@ -231,28 +242,89 @@ export class Game {
     }
     let made = 0;
     while (this.scale.length >= PACK_SIZE) {
-      const ids = this.scale.splice(0, PACK_SIZE);
-      for (const id of ids) {
-        if (this.pile.isChirimon(id)) {
-          this.chiriState.set(id, 'misshipped');
-          const sp = SPECIES[this.pile.speciesOf(id)];
-          this.dex[sp.id] = this.dex[sp.id] || { protected: 0, misshipped: 0 };
-          this.dex[sp.id].misshipped++;
-          this.stats.misshipped++;
-          this.emit('misshipped', { species: sp });
-        }
-      }
-      this.shipped += ids.length;
-      this.packs++;
-      this.stats.totalPacks++;
-      this.money += PACK_PRICE;
-      this.stats.sales += PACK_PRICE;
+      this._ship(this.scale.splice(0, PACK_SIZE));
       made++;
     }
     this.emit('packed', { count: made, money: made * PACK_PRICE });
     this.emit('scale');
     this.emit('changed');
     return made;
+  }
+
+  /** 1パック分を出荷する（ちりモンが混ざっていれば誤出荷） */
+  _ship(ids) {
+    for (const id of ids) {
+      if (this.pile.isChirimon(id)) {
+        this.chiriState.set(id, 'misshipped');
+        const sp = SPECIES[this.pile.speciesOf(id)];
+        this.dex[sp.id] = this.dex[sp.id] || { protected: 0, misshipped: 0 };
+        this.dex[sp.id].misshipped++;
+        this.stats.misshipped++;
+        this.emit('misshipped', { species: sp });
+      }
+    }
+    this.shipped += ids.length;
+    this.packs++;
+    this.stats.totalPacks++;
+    this.money += PACK_PRICE;
+    this.stats.sales += PACK_PRICE;
+  }
+
+  // ===== 搬送設備との受け渡し（factory.js から呼ばれる） =====
+  /** 包装機からの出荷 */
+  shipPack(ids) {
+    this._ship(ids);
+    this.machinePacks = (this.machinePacks || 0) + 1;
+    this.emit('machinePacked');
+  }
+
+  /** クレーンなどが山から取り除く（実在する未処理IDだけを選ぶ） */
+  machineGrab(x, z, r, n) {
+    const ids = this.pile.scrape(x, z, r, n);
+    const chiri = ids.filter((id) => this.pile.isChirimon(id));
+    for (const id of chiri) this.chiriState.set(id, 'machine');
+    if (ids.length) this.emit('machineGrab', { count: ids.length, chiri: chiri.length });
+    return ids;
+  }
+
+  factoryToScale(ids) {
+    for (const id of ids) {
+      this.scale.push(id);
+      if (this.pile.isChirimon(id)) this.chiriState.set(id, 'scale');
+    }
+    if (ids.some((id) => this.pile.isChirimon(id))) this.emit('chiriInScale', { ids });
+    if (this.has('autopack')) this.pack(true);
+    this.emit('scale');
+  }
+
+  releaseToMachine(m) {
+    if (!this.hand.length) return 0;
+    const n = this.factory.insertFromHand(m, this.hand);
+    if (!n) { this.emit('toast', { text: m.type === 'crane' ? 'クレーンには入れられない' : 'いっぱいで入らない' }); return 0; }
+    const ids = this.hand.splice(0, n);
+    for (const id of ids) if (this.pile.isChirimon(id)) this.chiriState.set(id, 'machine');
+    this.emit('released', { to: 'machine', count: n });
+    this.emit('changed');
+    return n;
+  }
+
+  pickFromMachine(m) {
+    const room = Math.min(this.capacity() - this.hand.length, Math.max(this.perAction(), 1));
+    if (room <= 0) { this.emit('toast', { text: 'これ以上持てない' }); return 0; }
+    const ids = this.factory.takeFrom(m, room);
+    if (!ids.length) return 0;
+    this._takeIntoHand(ids);
+    return ids.length;
+  }
+
+  /** 撤去した設備の中身などを床に落とす */
+  dropIdsToFloor(ids, p, rand = Math.random) {
+    const spread = 0.05 + 0.01 * Math.sqrt(ids.length);
+    for (const id of ids) {
+      const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * spread;
+      this.floor.push({ id, x: p.x + Math.cos(a) * r, z: p.z + Math.sin(a) * r, rot: rand() * Math.PI * 2 });
+      if (this.pile.isChirimon(id)) this.chiriState.set(id, 'floor');
+    }
   }
 
   // ===== 集計 =====
@@ -271,8 +343,9 @@ export class Game {
   invariant() {
     let prot = 0;
     for (const st of this.chiriState.values()) if (st === 'protected') prot++;
-    const accounted = this.hand.length + this.floor.length + this.scale.length + this.shipped + prot;
-    const ids = [...this.hand, ...this.floor.map((f) => f.id), ...this.scale];
+    const inFactory = this.factory ? this.factory.allIds() : [];
+    const accounted = this.hand.length + this.floor.length + this.scale.length + inFactory.length + this.shipped + prot;
+    const ids = [...this.hand, ...this.floor.map((f) => f.id), ...this.scale, ...inFactory];
     const unique = new Set(ids).size === ids.length;
     const allRemoved = ids.every((id) => this.pile.isRemoved(id));
     return { ok: accounted === this.pile.removedCount && unique && allRemoved, accounted, removed: this.pile.removedCount, unique, allRemoved };
@@ -285,6 +358,7 @@ export class Game {
     this.shipped = 0; this.packs = 0;
     this.chiriState = new Map();
     this.tool = 'hand';
+    this.factory.clearContents(); // 設備は引き継ぐ（中身は前の山の個体なので片付ける）
     this.emit('scale');
     this.emit('changed');
   }
@@ -302,6 +376,7 @@ export class Game {
       chiriState: [...this.chiriState],
       stats: this.stats,
       tutorial: this.tutorial,
+      factory: this.factory.toJSON(),
     };
   }
 

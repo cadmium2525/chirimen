@@ -15,7 +15,7 @@ export class UI {
     };
     this.stick = $('stick'); this.knob = $('knob'); this.stickZone = $('stickZone'); this.lookZone = $('lookZone');
     this.btnPick = $('btnPick'); this.btnRelease = $('btnRelease'); this.btnAction = $('btnAction'); this.btnTool = $('btnTool');
-    this.btnMenu = $('btnMenu');
+    this.btnMenu = $('btnMenu'); this.btnBuild = $('btnBuild');
     this.tab = 'dex';
     this.thumbs = null;
   }
@@ -195,7 +195,7 @@ export class UI {
         <div class="n">${u.name}</div>
         <button data-buy="${u.id}" ${owned || !game.canBuy(u) ? 'disabled' : ''}>${owned ? '購入済み' : `${fmt(u.price)}円`}</button>
         <div class="d">${u.desc}${req}</div></div>`;
-    }).join('') + `<div class="shop-note">しらす ${PACK_SIZE}匹 = 1パック = ${PACK_PRICE}円（仮値）。コンベア・クレーン・発電機・選別機などの設備は次の開発段階（P3〜P4）で追加予定です。</div>`;
+    }).join('') + `<div class="shop-note">しらす ${PACK_SIZE}匹 = 1パック = ${PACK_PRICE}円（仮値）。コンベア・ホッパー・包装機・クレーンは建設画面（PC: B キー / スマホ: 建設ボタン）で設置します。発電機・電力・選別機は次の開発段階（P4）で追加予定です。</div>`;
     this.el.shopList.querySelectorAll('[data-buy]').forEach((b) => b.addEventListener('click', () => {
       onBuy(b.dataset.buy);
       this._renderShop(game, onBuy);
@@ -212,7 +212,8 @@ export function helpHTML(touch) {
       <span><kbd>つまむ</kbd></span><span>照準の近くの露出したしらす／ちりモンをつまむ（長押しで連続）</span>
       <span><kbd>はなす</kbd></span><span>狙った場所にはなす（計量機・保護ケース・床）</span>
       <span><kbd>調べる</kbd></span><span>包装する／ショップ／図鑑</span>
-      <span><kbd>≡</kbd></span><span>メニュー（一時停止）</span>`;
+      <span><kbd>≡</kbd></span><span>メニュー（一時停止）</span>
+      <span><kbd>建設</kbd></span><span>建設画面（コンベア・ホッパー・包装機・クレーン）</span>`;
   }
   return `<span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>歩く</span>
     <span>マウス</span><span>見回す（画面クリックで操作開始）</span>
@@ -220,6 +221,7 @@ export function helpHTML(touch) {
     <span>右クリック / <kbd>Q</kbd></span><span>はなす（狙った場所へ）</span>
     <span><kbd>E</kbd></span><span>包装する／ショップ／図鑑（狙った設備）</span>
     <span><kbd>1</kbd> <kbd>2</kbd></span><span>手 / スコップ の持ち替え</span>
+    <span><kbd>B</kbd></span><span>建設画面（コンベア・ホッパー・包装機・クレーン）</span>
     <span><kbd>Tab</kbd></span><span>図鑑</span>
     <span><kbd>Esc</kbd></span><span>メニュー（一時停止）</span>`;
 }
@@ -232,5 +234,6 @@ function rulesHTML() {
     <li>購入端末で手袋やスコップを買い、一度に運べる量を増やす。</li>
     <li>山を削ると、埋まっていた<b>ちりモン</b>が姿を現す。つまんで<b>保護ケース</b>へ運ぶと図鑑に登録。計量機に入れたまま包装すると<b>誤出荷（見逃し）</b>になる。</li>
     <li>計量機に入れてしまったちりモンは、包装前なら受け皿からつまみ出せる。</li>
+    <li><b>建設</b>：クレーン → ホッパー → コンベア → 包装機（または計量機）とつなぐと自動で出荷できる。ただし機械はちりモンを見分けない。設備を止めて、ベルトやホッパーから手で取り出すこともできる。</li>
   </ol>`;
 }
