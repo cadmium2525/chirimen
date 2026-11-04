@@ -17,6 +17,10 @@ export class UI {
     this.btnPick = $('btnPick'); this.btnRelease = $('btnRelease'); this.btnAction = $('btnAction'); this.btnTool = $('btnTool');
     this.btnMenu = $('btnMenu'); this.btnBuild = $('btnBuild');
     this.tab = 'dex';
+    this.el.power = document.createElement('div');
+    this.el.power.className = 'chip';
+    this.el.power.hidden = true;
+    document.getElementById('topbar').appendChild(this.el.power);
     this.thumbs = null;
   }
 
@@ -37,6 +41,14 @@ export class UI {
     this.el.tool.textContent = hasScoop ? (game.tool === 'scoop' ? '[1] 手 / [2] スコップ ◀' : '[1] 手 ◀ / [2] スコップ') : '';
     this.el.warn.textContent = chiri ? '⚠ ちりモンを持っている！ 保護ケースへ運ぼう' : '';
     this.btnTool.hidden = !hasScoop;
+  }
+
+  setPower(ps) {
+    const el = this.el.power;
+    el.hidden = !ps;
+    if (!ps) return;
+    el.textContent = `⚡ ${ps.demand.toFixed(1)}/${ps.supply.toFixed(1)}kW${ps.unpowered ? ` 電源なし${ps.unpowered}` : ''}`;
+    el.style.color = ps.short || ps.unpowered ? '#ff7a6b' : '#7ee2a0';
   }
 
   setObjective(html) {
@@ -195,7 +207,7 @@ export class UI {
         <div class="n">${u.name}</div>
         <button data-buy="${u.id}" ${owned || !game.canBuy(u) ? 'disabled' : ''}>${owned ? '購入済み' : `${fmt(u.price)}円`}</button>
         <div class="d">${u.desc}${req}</div></div>`;
-    }).join('') + `<div class="shop-note">しらす ${PACK_SIZE}匹 = 1パック = ${PACK_PRICE}円（仮値）。コンベア・ホッパー・包装機・クレーンは建設画面（PC: B キー / スマホ: 建設ボタン）で設置します。発電機・電力・選別機は次の開発段階（P4）で追加予定です。</div>`;
+    }).join('') + `<div class="shop-note">しらす ${PACK_SIZE}匹 = 1パック = ${PACK_PRICE}円（仮値）。コンベア・ホッパー・包装機・クレーンは建設画面（PC: B キー / スマホ: 建設ボタン）で設置します。設備には電力が必要です（受電盤 3kW は無料。足りなければ発電機・電柱を建設）。</div>`;
     this.el.shopList.querySelectorAll('[data-buy]').forEach((b) => b.addEventListener('click', () => {
       onBuy(b.dataset.buy);
       this._renderShop(game, onBuy);
@@ -213,7 +225,7 @@ export function helpHTML(touch) {
       <span><kbd>はなす</kbd></span><span>狙った場所にはなす（計量機・保護ケース・床）</span>
       <span><kbd>調べる</kbd></span><span>包装する／ショップ／図鑑</span>
       <span><kbd>≡</kbd></span><span>メニュー（一時停止）</span>
-      <span><kbd>建設</kbd></span><span>建設画面（コンベア・ホッパー・包装機・クレーン）</span>`;
+      <span><kbd>建設</kbd></span><span>建設画面（搬送設備・選別機・発電機・電柱）</span>`;
   }
   return `<span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span><span>歩く</span>
     <span>マウス</span><span>見回す（画面クリックで操作開始）</span>
@@ -221,7 +233,7 @@ export function helpHTML(touch) {
     <span>右クリック / <kbd>Q</kbd></span><span>はなす（狙った場所へ）</span>
     <span><kbd>E</kbd></span><span>包装する／ショップ／図鑑（狙った設備）</span>
     <span><kbd>1</kbd> <kbd>2</kbd></span><span>手 / スコップ の持ち替え</span>
-    <span><kbd>B</kbd></span><span>建設画面（コンベア・ホッパー・包装機・クレーン）</span>
+    <span><kbd>B</kbd></span><span>建設画面（搬送設備・選別機・発電機・電柱）</span>
     <span><kbd>Tab</kbd></span><span>図鑑</span>
     <span><kbd>Esc</kbd></span><span>メニュー（一時停止）</span>`;
 }
@@ -235,5 +247,7 @@ function rulesHTML() {
     <li>山を削ると、埋まっていた<b>ちりモン</b>が姿を現す。つまんで<b>保護ケース</b>へ運ぶと図鑑に登録。計量機に入れたまま包装すると<b>誤出荷（見逃し）</b>になる。</li>
     <li>計量機に入れてしまったちりモンは、包装前なら受け皿からつまみ出せる。</li>
     <li><b>建設</b>：クレーン → ホッパー → コンベア → 包装機（または計量機）とつなぐと自動で出荷できる。ただし機械はちりモンを見分けない。設備を止めて、ベルトやホッパーから手で取り出すこともできる。</li>
+    <li><b>電力</b>：設備は配電範囲の中でだけ動く。受電盤（3kW）は無料、発電機（12kW）は負荷に応じて燃料費がかかる。電柱で電線を延ばせる。足りないと優先度の低い設備から止まる。</li>
+    <li><b>選別機</b>：ラインの途中に置くと、ちりモンを85%の確率で回収箱へ分ける。処理は少し遅い。回収箱から取り出して保護ケースへ。</li>
   </ol>`;
 }

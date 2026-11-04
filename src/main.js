@@ -16,7 +16,7 @@ import { SPECIES } from './chirimonData.js';
 import { sfx, setSound } from './audio.js';
 import { FactoryView } from './factoryView.js';
 import { BuildScreen } from './buildUI.js';
-import { MACHINES } from './config.js';
+import { MACHINES, POWER_PANEL, PRIO_NAMES } from './config.js';
 
 const INTERACT_DIST = 2.7;
 const ASSIST = { low: 0.035, mid: 0.06, high: 0.09 };
@@ -201,13 +201,20 @@ function updatePrompt() {
     cls = 'can';
     lines.push(`${k.act}: 購入端末を使う`);
     act = 'ショップ';
+  } else if (t.kind === 'panel' && t.dist <= INTERACT_DIST) {
+    lines.push(`受電盤：${POWER_PANEL.output}kW・半径${POWER_PANEL.coverage}mに配電（無料）`);
+    lines.push('電柱で電力網を延ばせる。足りなければ発電機を建設');
   } else if (t.kind === 'machine' && t.dist <= INTERACT_DIST) {
     const m = t.machine, f = game.factory;
     const def = MACHINES[m.type];
     const n = f.contents(m).length;
     cls = f.hasChiri(m) ? 'chiri' : 'can';
-    lines.push(`${def.name}（${m.on ? '稼働中' : '停止中'}）${n ? ` 中身 ${n}匹` : ''}`);
-    if (holding && m.type !== 'crane') lines.push(`${k.rel}: ${def.name}に入れる`);
+    const takes = ['conveyor', 'hopper', 'packer', 'sorter'].includes(m.type);
+    const pw = def.power != null ? `・${def.power}kW 優先度${PRIO_NAMES[m.prio]}` : '';
+    lines.push(`${def.name}（${m.on ? '稼働中' : '停止中'}${pw}）${n ? ` 中身 ${n}匹` : ''}`);
+    const iss = f.issues(m).filter((x) => x !== '停止中');
+    if (iss.length) lines.push(`⚠ ${iss.join('／')}`);
+    if (holding && takes) lines.push(`${k.rel}: ${def.name}に入れる`);
     if (n && m.type !== 'crane') lines.push(`${k.pick}: 取り出す${f.hasChiri(m) ? '（何かいる…！）' : ''}`);
     lines.push(`${k.act}: ${m.on ? '止める' : '動かす'}`);
     act = m.on ? '停止' : '稼働';
@@ -332,6 +339,7 @@ function wireGame() {
       case 'machineGrab':
         if (p.chiri && game.has('loupe')) { ui.toast('ルーペ：クレーンが何かをつかんだ…！ ラインを確かめよう', 'find'); sfx.find(); }
         break;
+      case 'sorterCaught': ui.toast('選別機がちりモンを回収した！ 回収箱から取り出して保護ケースへ', 'find'); sfx.find(); break;
       case 'machineToggle': ui.toast(`${MACHINES[p.machine.type].name}を${p.machine.on ? '動かした' : '止めた'}`); break;
       case 'bought': ui.toast(`「${p.upgrade.name}」を手に入れた！`, 'good'); sfx.buy(); advanceTutorial(3); refreshObjective(); break;
       case 'toast': ui.toast(p.text); sfx.deny(); break;
@@ -382,7 +390,15 @@ function setupGame(saved, dex) {
   fview.version = -1;
   wireGame();
   refreshAll();
+  pendingNotes = [...(game.factory.loadNotes || [])];
+  // P4 アップデート：これまで電力なしで動いていた設備のために、発電機1台分を一度だけ支給
+  if (saved && game.factory.machines.size && !game.stats.p4gift) {
+    game.stats.p4gift = true;
+    game.money += MACHINES.generator.price;
+    pendingNotes.push(`アップデート：設備を動かすのに電力が必要になりました。発電機1台分（${MACHINES.generator.price.toLocaleString()}円）を支給します`);
+  }
 }
+let pendingNotes = [];
 
 async function persist() {
   if (!game) return;
@@ -402,6 +418,8 @@ function beginPlay() {
   if (isTouch) ui.el.touch.hidden = false;
   document.body.classList.add('playing');
   resume();
+  for (const n of pendingNotes) ui.toast(n, 'good');
+  pendingNotes = [];
 }
 
 function resume() {
@@ -551,7 +569,7 @@ function frame(now) {
   if (game) {
     const aid = game.has('loupe') || settings.aid === 'on' || (settings.aid === 'auto' && quality.aid);
     view.update(camera.position, game, time, aid);
-    fview.update(game.factory, pile, paused ? 0 : dt);
+    fview.update(game.factory, pile, paused ? 0 : dt, time);
   }
   // 手の動き
   pickAnim = Math.max(0, pickAnim - dt * 4);
@@ -562,6 +580,7 @@ function frame(now) {
   perfT += dt;
   if (perfT > 0.5 && view.stats) {
     perfT = 0;
+    if (game) ui.setPower(game.factory.machines.size ? game.factory.powerSummary() : null);
     ui.el.perf.textContent = `${quality.label} | ${dynres.fps ? Math.round(dynres.fps) : '--'}fps | 近景${view.stats.near} 中景${view.stats.mid} | 解像度×${dynres.scale.toFixed(2)}`;
   }
   requestAnimationFrame(frame);

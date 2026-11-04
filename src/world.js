@@ -1,6 +1,6 @@
 // 作業場（企画書 2.1）：しらす置き場・計量機・完成パック集積場所・保護ケース・端末・拡張用の空き床
 import * as THREE from 'three';
-import { ROOM, LAYOUT, PILE } from './config.js';
+import { ROOM, LAYOUT, PILE, POWER_PANEL } from './config.js';
 import { makeFloorTexture, makeLabel, makeCanvas } from './meshes.js';
 
 export function buildWorld(scene, quality) {
@@ -205,7 +205,26 @@ export function buildWorld(scene, quality) {
   term.rotation.y = Math.PI / 2; // 画面を -X（作業場の中央）側へ
   obstacles.push({ minX: T.x - 0.3, maxX: T.x + 0.3, minZ: T.z - 0.25, maxZ: T.z + 0.25 });
 
-  // --- 拡張可能な空き床（建設グリッド。P3以降で使用）
+  // --- 受電盤（最初からある小さな電源。P4）
+  const P = POWER_PANEL;
+  const panel = new THREE.Group();
+  panel.position.set(P.x, 0, P.z);
+  scene.add(panel);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.5, 0.35), new THREE.MeshLambertMaterial({ color: '#8d969c' }));
+  cab.position.y = 0.75;
+  cab.castShadow = true;
+  panel.add(cab);
+  const plate = makeLabel('受電盤', { w: 0.5, h: 0.4, bg: '#e8b827', fg: '#1d1a10', font: 80, sub: `⚡ ${P.output}kW` });
+  plate.position.set(0, 1.1, 0.18);
+  panel.add(plate);
+  const panelTarget = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.6, 0.45), new THREE.MeshBasicMaterial({ visible: false }));
+  panelTarget.position.y = 0.8;
+  panelTarget.userData.kind = 'panel';
+  panel.add(panelTarget);
+  targets.push(panelTarget);
+  obstacles.push({ minX: P.x - 0.35, maxX: P.x + 0.35, minZ: P.z - 0.2, maxZ: P.z + 0.2 });
+
+  // --- 拡張可能な空き床（建設グリッド）
   const F = LAYOUT.freeFloor;
   const fw = F.maxX - F.minX, fd = F.maxZ - F.minZ;
   const pts = [];
@@ -214,9 +233,8 @@ export function buildWorld(scene, quality) {
   const gridGeo = new THREE.BufferGeometry();
   gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
   scene.add(new THREE.LineSegments(gridGeo, new THREE.LineBasicMaterial({ color: '#cfd8dc', transparent: true, opacity: 0.55 })));
-  const freeSign = makeLabel('拡張用の空き床', { w: 1.6, h: 0.36, bg: '#555', sub: '設備の建設は今後のアップデートで' });
-  freeSign.position.set((F.minX + F.maxX) / 2, 1.6, F.minZ - 0.01);
-  freeSign.position.z = ROOM.minZ + 0.02;
+  const freeSign = makeLabel('拡張用の空き床', { w: 1.6, h: 0.36, bg: '#555', sub: '建設画面（B）で設備を置こう' });
+  freeSign.position.set((F.minX + F.maxX) / 2 + 2, 1.6, ROOM.minZ + 0.02);
   scene.add(freeSign);
   void fw; void fd;
 

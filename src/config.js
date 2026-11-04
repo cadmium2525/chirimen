@@ -44,24 +44,41 @@ export const UPGRADES = [
 // 建設グリッド（作業場の床を 0.5m 四方のマスで管理）
 export const GRID = { cell: 0.5 };
 
+// size: [幅, 奥行き（向きの方向）]。generator は向きに関係なく 2×2。
+// power: 消費電力(kW)。prio: 電力不足時の優先度（2=高 1=中 0=低）
 export const MACHINES = {
   conveyor: {
-    name: 'コンベア', price: 40, blocks: false,
-    desc: '向きの方向へしらすを運ぶ。ドラッグで連続設置。',
+    name: 'コンベア', price: 40, blocks: false, size: [1, 1], power: 0.1, prio: 1,
+    desc: '向きの方向へしらすを運ぶ。正面からは受け取らない。ドラッグで連続設置。',
   },
   hopper: {
-    name: 'ホッパー', price: 600, blocks: true, capacity: 2000,
-    desc: '投入口。手やクレーンで入れたしらすを、向きの方向のベルトへ少しずつ送り出す。',
+    name: 'ホッパー', price: 600, blocks: true, size: [1, 1], power: 0.5, prio: 1, capacity: 2000,
+    desc: '投入口（上・どの向きからでも入る）。向きの方向のベルトへ少しずつ送り出す。',
   },
   packer: {
-    name: '包装機', price: 2500, blocks: true, capacity: 400,
-    desc: '届いたしらすを20匹ずつ自動で包装・出荷する。ちりモンが混ざると誤出荷。',
+    name: '包装機', price: 2500, blocks: true, size: [1, 2], power: 1.5, prio: 2, capacity: 400,
+    desc: '1×2マス。後ろの面から受け取り20匹ずつ包装・出荷。正面の出荷口マスは空けておく必要がある。',
   },
   crane: {
-    name: 'クレーン', price: 15000, blocks: true, reach: 2.2, grab: 150, cycle: 4.0,
+    name: 'クレーン', price: 15000, blocks: true, size: [1, 1], power: 5, prio: 0, reach: 2.2, grab: 150, cycle: 4.0,
     desc: '山の近くに設置。可動範囲（半径2.2m）の一番高い所をつかみ、向きの方向のホッパー／ベルトへ降ろす。',
   },
+  sorter: {
+    name: '選別機', price: 9000, blocks: true, size: [1, 1], power: 2, prio: 2, capacity: 200, bin: 12, detect: 0.85, interval: 0.4,
+    desc: 'ライン途中に置く。後ろから受け取り、ちりモンを検出率85%で回収箱へ分け、しらすは前へ流す。処理は少し遅い。',
+  },
+  generator: {
+    name: '発電機', price: 20000, blocks: true, size: [2, 2], output: 12, coverage: 3.5, link: 5, fuelCost: 0.06,
+    desc: '2×2マス。周囲1マスは通路として空ける。半径3.5mへ12kWを供給。燃料費は負荷1kWあたり0.06円/秒。',
+  },
+  pole: {
+    name: '電柱', price: 300, blocks: false, size: [1, 1], coverage: 3, link: 5,
+    desc: '電線で電力を延ばす。5m以内の電柱・発電機・受電盤とつながり、半径3mに配電する。',
+  },
 };
+
+// 作業場に最初からある受電盤（小さいが無料）
+export const POWER_PANEL = { x: 1.0, z: -8.55, output: 3, coverage: 5, link: 5 };
 
 export const BELT = {
   speed: 1.5,        // マス/秒
@@ -70,6 +87,8 @@ export const BELT = {
   hopperInterval: 0.35,
   packInterval: 0.25,
 };
+
+export const PRIO_NAMES = ['低', '中', '高'];
 
 // 作業場レイアウト（企画書 2.1）
 export const ROOM = { minX: -12, maxX: 12, minZ: -9, maxZ: 9, height: 4.2 };

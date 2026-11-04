@@ -141,3 +141,17 @@ table.stats td:last-child { text-align: right; font-variant-numeric: tabular-num
 .build-tools button { padding: 0.35em 0.7em; line-height: 1.15; font-size: 0.85em; }
 .build-tools button.on { background: var(--accent); color: #1d1a10; font-weight: 700; }
 .build-hint { min-height: 1.2em; }
+.build-wrap { height: 100%; min-height: 0; }
+.build-top { flex-wrap: nowrap; min-width: 0; }
+.build-top .chip { white-space: nowrap; }
+#bStatus { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.build-top .grow { display: none; }
+.build-tools { flex-wrap: nowrap; overflow-x: auto; touch-action: pan-x; padding-bottom: 2px; flex: none; }
+.build-tools button { flex: none; }
+@media (max-height: 500px), (max-width: 700px) {
+  #build { padding: 4px; }
+  .build-top { font-size: 0.78em; gap: 5px; }
+  .build-top button { padding: 0.3em 0.7em; }
+  .build-tools button { font-size: 0.72em; padding: 0.25em 0.55em; }
+  .build-hint { display: none; }
+}
