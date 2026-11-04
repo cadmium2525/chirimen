@@ -1,5 +1,5 @@
 // ゲーム全体の定数（数値はすべて仮値。企画書 2.3 / 3.1 参照）
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 // 山の個体数（企画書 4.1：1,000万匹がそれぞれ固有IDを持つ）
 export const TOTAL_FISH = 10_000_000;

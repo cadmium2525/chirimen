@@ -9,8 +9,8 @@ import { UI, helpHTML } from './ui.js';
 import { buildWorld, drawScaleDisplay } from './world.js';
 import { PileView } from './pileView.js';
 import { makeHand, makeScoop, makeChirimonMesh, makeShirasuGeometry, makeShirasuMaterial } from './meshes.js';
-import { resolvePreset, DynamicResolution } from './quality.js';
-import { loadWorld, saveWorld, loadDex, saveDex, loadSettings, saveSettings } from './save.js';
+import { resolvePreset, DynamicResolution, gpuName } from './quality.js';
+import { loadWorld, saveWorld, loadDex, saveDex, loadSettings, saveSettings, requestPersist, exportFile, importFile, writeImported, deleteAll } from './save.js';
 import { randomSeed } from './rng.js';
 import { SPECIES } from './chirimonData.js';
 import { sfx, setSound } from './audio.js';
@@ -19,7 +19,7 @@ import { BuildScreen } from './buildUI.js';
 import { MACHINES, POWER_PANEL, PRIO_NAMES } from './config.js';
 
 const INTERACT_DIST = 2.7;
-const ASSIST = { low: 0.035, mid: 0.06, high: 0.09 };
+const ASSIST_R = { low: 0.035, mid: 0.06, high: 0.09 };
 
 // ---------- 基盤 ----------
 const settings = loadSettings();
@@ -41,9 +41,20 @@ const camera = new THREE.PerspectiveCamera(settings.fov, innerWidth / innerHeigh
 camera.rotation.order = 'YXZ';
 scene.add(camera);
 
-let quality = resolvePreset(settings.quality, isTouch);
+const gpu = gpuName(renderer);
+let autoStep = 0; // 自動画質で重すぎたときに下げた段数
+let quality = resolvePreset(settings.quality, isTouch, settings, gpu);
+const assistR = () => ASSIST_R[settings.assist === 'auto' ? (isTouch ? 'high' : 'mid') : settings.assist];
+input.settings = settings;
 const world = buildWorld(scene, quality);
 const view = new PileView(scene, quality);
+function applyDistance() {
+  scene.fog.far = quality.distance;
+  scene.fog.near = quality.distance * 0.5;
+  camera.far = quality.distance + 6;
+  camera.updateProjectionMatrix();
+}
+applyDistance();
 const dynres = new DynamicResolution(renderer, quality);
 const fview = new FactoryView(scene);
 let obstacles = world.obstacles, obstaclesVersion = -1;
@@ -170,7 +181,7 @@ function updatePrompt() {
     } else {
       const floorNear = game.floorItemsNear(t.point);
       if (t.kind === 'pile') {
-        const cid = view.chirimonNear(t.point, ASSIST[settings.assist] + 0.02);
+        const cid = view.chirimonNear(t.point, assistR() + 0.02);
         if (cid != null) {
           const sp = SPECIES[pile.speciesOf(cid)];
           const known = game.dex[sp.id]?.protected;
@@ -229,7 +240,7 @@ function doPick() {
   if ((t.kind === 'pile' || t.kind === 'floor') && t.dist <= REACH) {
     let n = 0;
     if (game.floorItemsNear(t.point)) n = game.pickFromFloor(t.point);
-    if (!n && t.kind === 'pile') n = game.pickFromPile(t.point, ASSIST[settings.assist]);
+    if (!n && t.kind === 'pile') n = game.pickFromPile(t.point, assistR());
     if (!n && game.hand.length < game.capacity()) sfx.deny();
     else if (n) pickAnim = 1;
     return;
@@ -275,6 +286,9 @@ function openBuild() {
 }
 
 // ---------- ゲームのイベント ----------
+function buzz(p) {
+  if (isTouch && settings.haptics && navigator.vibrate) { try { navigator.vibrate(p); } catch { /* noop */ } }
+}
 const tutorialSteps = () => {
   const k = K();
   return [
@@ -310,20 +324,20 @@ function advanceTutorial(step) {
 function wireGame() {
   game.on((type, p) => {
     switch (type) {
-      case 'picked': game.tool === 'scoop' ? sfx.scoop() : sfx.pick(); advanceTutorial(0); break;
+      case 'picked': game.tool === 'scoop' ? sfx.scoop() : sfx.pick(); buzz(8); advanceTutorial(0); break;
       case 'chiriPicked': {
         const names = p.ids.map((id) => {
           const sp = SPECIES[pile.speciesOf(id)];
           return game.dex[sp.id]?.protected ? sp.name : '見たことのない生き物';
         });
         ui.toast(`ちりモンをつまんだ！（${[...new Set(names)].join('、')}）保護ケースへ運ぼう`, 'find');
-        sfx.find();
+        sfx.find(); buzz([20, 40, 20]);
         break;
       }
       case 'chiriInScale': ui.toast('⚠ ちりモンが計量機に入った！ 包装する前に受け皿から取り出そう', 'bad'); sfx.warn(); break;
       case 'protected':
         ui.toast(`「${p.species.name}」を保護した！${p.first ? '（図鑑に新登録）' : ''}`, 'find');
-        sfx.find();
+        sfx.find(); buzz([20, 40, 20]);
         advanceTutorial(4);
         if (game.tutorial < 5 && game.tutorial >= 0) { /* 途中でも保護はOK */ }
         break;
@@ -337,9 +351,9 @@ function wireGame() {
       case 'released': if (p.to === 'scale') advanceTutorial(1); break;
       case 'machinePacked': hudDirty = true; break;
       case 'machineGrab':
-        if (p.chiri && game.has('loupe')) { ui.toast('ルーペ：クレーンが何かをつかんだ…！ ラインを確かめよう', 'find'); sfx.find(); }
+        if (p.chiri && game.has('loupe')) { ui.toast('ルーペ：クレーンが何かをつかんだ…！ ラインを確かめよう', 'find'); sfx.find(); buzz([20, 40, 20]); }
         break;
-      case 'sorterCaught': ui.toast('選別機がちりモンを回収した！ 回収箱から取り出して保護ケースへ', 'find'); sfx.find(); break;
+      case 'sorterCaught': ui.toast('選別機がちりモンを回収した！ 回収箱から取り出して保護ケースへ', 'find'); sfx.find(); buzz([20, 40, 20]); break;
       case 'machineToggle': ui.toast(`${MACHINES[p.machine.type].name}を${p.machine.on ? '動かした' : '止めた'}`); break;
       case 'bought': ui.toast(`「${p.upgrade.name}」を手に入れた！`, 'good'); sfx.buy(); advanceTutorial(3); refreshObjective(); break;
       case 'toast': ui.toast(p.text); sfx.deny(); break;
@@ -390,7 +404,7 @@ function setupGame(saved, dex) {
   fview.version = -1;
   wireGame();
   refreshAll();
-  pendingNotes = [...(game.factory.loadNotes || [])];
+  pendingNotes.push(...(game.factory.loadNotes || []));
   // P4 アップデート：これまで電力なしで動いていた設備のために、発電機1台分を一度だけ支給
   if (saved && game.factory.machines.size && !game.stats.p4gift) {
     game.stats.p4gift = true;
@@ -399,19 +413,60 @@ function setupGame(saved, dex) {
   }
 }
 let pendingNotes = [];
+let persistent = false;
 
-async function persist() {
-  if (!game) return;
+let saveBlocked = false;     // 新しい版のセーブがあるときは上書きしない
+let lastSaved = 0, saveFailT = 0, saving = null;
+async function persist({ manual = false } = {}) {
+  if (!game || saveBlocked) {
+    if (manual && saveBlocked) ui.toast('新しい版のセーブがあるため、この版では保存しません（再読み込みしてください）', 'bad');
+    return false;
+  }
+  if (saving) return saving;
   dirty = false;
-  await Promise.all([saveWorld({ pile, game, player }), saveDex(game.dex)]);
+  saving = (async () => {
+    try {
+      lastSaved = await saveWorld({ pile, game, player });
+      await saveDex(game.dex);
+      if (manual) ui.toast('セーブしました', 'good');
+      return true;
+    } catch (e) {
+      dirty = true;
+      console.warn(e);
+      if (manual || Date.now() - saveFailT > 60000) {
+        saveFailT = Date.now();
+        ui.toast('セーブに失敗しました（ストレージの空き・プライベートモードを確認してください）', 'bad');
+      }
+      return false;
+    } finally { saving = null; }
+  })();
+  return saving;
 }
 
 setInterval(() => { if (dirty && playing) persist(); }, 15000);
-addEventListener('visibilitychange', () => { if (document.hidden && playing) persist(); });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden || !playing) return;
+  // アプリの切り替え・画面ロック：一時停止して保存
+  if (!paused) openMenu();
+  persist();
+});
 addEventListener('pagehide', () => { if (playing) persist(); });
+
+// スマホで多い「描画の中断」からの復帰
+canvas.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault();
+  persist();
+  pause();
+  const d = document.createElement('div');
+  d.className = 'screen';
+  d.innerHTML = '<div class="panel title-panel"><h2>描画が中断されました</h2><p class="muted">端末のメモリ不足などで画面の描画が止まりました。進行状況は保存しました。</p><div class="row"><button class="primary">再読み込み</button></div></div>';
+  d.querySelector('button').addEventListener('click', () => location.reload());
+  document.getElementById('app').appendChild(d);
+});
 
 function beginPlay() {
   sfx.unlock();
+  requestPersist().then((ok) => { persistent = ok; });
   playing = true;
   document.getElementById('start').hidden = true;
   ui.el.hud.hidden = false;
@@ -440,13 +495,76 @@ function pause() {
 function openMenu(tab) {
   pause();
   input.exitLock();
-  ui.openMenu(tab, { game, settings, onSetting, onNewPile, touch: isTouch });
+  ui.openMenu(tab, {
+    game, settings, onSetting, onNewPile, touch: isTouch,
+    saveInfo: () => ({ lastSaved, persistent, blocked: saveBlocked }),
+    onSaveNow: () => persist({ manual: true }),
+    onExport: doExport,
+    onImport: doImport,
+    onWipe: doWipe,
+    fullscreen: canFullscreen() ? toggleFullscreen : null,
+    qualityInfo: () => ({ label: quality.label, gpu, autoStep }),
+  });
 }
 
 function openShop() {
   pause();
   input.exitLock();
   ui.openShop(game, (id) => game.buy(id));
+}
+
+// ---------- セーブの書き出し・読み込み（PC ⇄ スマホ） ----------
+async function doExport() {
+  try {
+    const { blob, name } = await exportFile({ pile, game, player }, game.dex);
+    const file = typeof File !== 'undefined' ? new File([blob], name, { type: blob.type }) : null;
+    // スマホは共有シート（ファイルに保存・AirDrop など）を優先
+    if (isTouch && file && navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'しらすの山 セーブ' }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    ui.toast(`書き出しました（${Math.ceil(blob.size / 1024)}KB）`, 'good');
+  } catch (e) { ui.toast(`書き出せませんでした：${e.message}`, 'bad'); }
+}
+
+function doImport() {
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = '.gz,.json,application/gzip,application/json,application/octet-stream';
+  inp.addEventListener('change', async () => {
+    const f = inp.files && inp.files[0];
+    if (!f) return;
+    try {
+      const { world: w, dex } = await importFile(f);
+      if (!confirm(`このセーブを読み込みますか？\n所持金 ${Math.floor(w.game.money).toLocaleString()}円 / 保存日時 ${new Date(w.savedAt).toLocaleString()}\n（いまの進行状況は上書きされます）`)) return;
+      await writeImported(w, dex);
+      location.reload();
+    } catch (e) { ui.toast(e.message, 'bad'); }
+  });
+  inp.click();
+}
+
+async function doWipe() {
+  if (!confirm('この端末のセーブと図鑑をすべて消去しますか？（元に戻せません）')) return;
+  saveBlocked = true;
+  await deleteAll();
+  location.reload();
+}
+
+function canFullscreen() { return !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen); }
+async function toggleFullscreen() {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else {
+      const el = document.documentElement;
+      await (el.requestFullscreen ? el.requestFullscreen({ navigationUI: 'hide' }) : el.webkitRequestFullscreen());
+      try { await screen.orientation.lock('landscape'); } catch { /* 対応していない端末 */ }
+    }
+  } catch (e) { ui.toast('全画面にできませんでした'); }
 }
 
 function onNewPile() {
@@ -472,6 +590,8 @@ addEventListener('keydown', (e) => {
 
 // ---------- 設定 ----------
 function applySettings() {
+  document.body.dataset.btn = settings.btnSize;
+  ui.el.perf.hidden = !settings.showFps;
   camera.fov = settings.fov;
   camera.updateProjectionMatrix();
   document.documentElement.style.setProperty('--fs', { s: '14px', m: '16px', l: '19px' }[settings.textSize]);
@@ -480,7 +600,8 @@ function applySettings() {
 }
 
 function applyQuality() {
-  quality = resolvePreset(settings.quality, isTouch);
+  quality = resolvePreset(settings.quality, isTouch, settings, gpu, settings.quality === 'auto' ? autoStep : 0);
+  applyDistance();
   view.setQuality(quality);
   dynres.set(quality);
   world.sun.castShadow = quality.shadows;
@@ -497,7 +618,7 @@ function onSetting(key, value) {
   settings[key] = value;
   saveSettings(settings);
   applySettings();
-  if (key === 'quality') applyQuality();
+  if (key === 'quality' || key.startsWith('q')) { if (key === 'quality') autoStep = 0; applyQuality(); }
 }
 
 // ---------- 図鑑のサムネイル ----------
@@ -576,7 +697,11 @@ function frame(now) {
   const sway = settings.bob && player ? Math.sin(player.bob) * 0.006 : 0;
   handRoot.position.set(0.17 + sway, -0.19 - pickAnim * 0.05 + Math.abs(sway) * 0.5, -0.36 - pickAnim * 0.08);
   renderer.render(scene, camera);
-  dynres.tick(dt);
+  if (dynres.tick(dt) && playing && !paused && settings.quality === 'auto' && quality.key !== 'low') {
+    autoStep++;
+    applyQuality();
+    ui.toast(`動作が重いため、画質を「${quality.label}」に下げました（設定で変更できます）`);
+  }
   perfT += dt;
   if (perfT > 0.5 && view.stats) {
     perfT = 0;
@@ -595,7 +720,13 @@ addEventListener('resize', () => {
 // ---------- 起動 ----------
 async function boot() {
   applySettings();
-  const [saved, dex] = await Promise.all([loadWorld(), loadDex()]);
+  const [loaded, dex] = await Promise.all([loadWorld(), loadDex()]);
+  const saved = loaded.world;
+  if (loaded.tooNew) {
+    saveBlocked = true;
+    document.getElementById('startInfo').textContent = '新しい版のゲームで保存されたデータがあります。ページを再読み込みして最新版にしてください（この版では上書きしません）。';
+  }
+  if (saved && loaded.fromBackup) pendingNotes.push('最新のセーブが読めなかったため、ひとつ前のセーブから復元しました');
   const startHelp = document.getElementById('startHelp');
   startHelp.innerHTML = helpHTML(isTouch);
   const btnC = document.getElementById('btnContinue');
@@ -615,6 +746,7 @@ async function boot() {
   btnC.addEventListener('click', () => beginPlay());
   btnN.addEventListener('click', () => {
     if (saved && !confirm('はじめからやり直しますか？（図鑑の記録は残ります）')) return;
+    pendingNotes = [];
     setupGame(null, game.dex);
     persist();
     beginPlay();

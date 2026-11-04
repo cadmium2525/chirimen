@@ -115,7 +115,22 @@ export class Input {
       el.addEventListener('pointerleave', up);
     };
     bind(ui.btnPick, 'pick', true);
-    bind(ui.btnRelease, 'release');
+    // はなす：設定で「長押しで実行」にできる（誤タップ防止）
+    const rel = ui.btnRelease;
+    let relTimer = null;
+    rel.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      if (!this.enabled) return;
+      rel.classList.add('down');
+      if (this.settings && this.settings.holdRelease) {
+        rel.classList.add('charging');
+        relTimer = setTimeout(() => { relTimer = null; rel.classList.remove('charging'); this.actions.push('release'); }, 350);
+      } else this.actions.push('release');
+    });
+    const relUp = () => { rel.classList.remove('down', 'charging'); if (relTimer) { clearTimeout(relTimer); relTimer = null; } };
+    rel.addEventListener('pointerup', relUp);
+    rel.addEventListener('pointercancel', relUp);
+    rel.addEventListener('pointerleave', relUp);
     bind(ui.btnAction, 'interact');
     bind(ui.btnTool, 'toolToggle');
     bind(ui.btnBuild, 'build');

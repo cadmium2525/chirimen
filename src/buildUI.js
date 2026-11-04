@@ -81,7 +81,7 @@ export class BuildScreen {
     const def = MACHINES[this.tool];
     this.root.querySelector('#bHint').textContent = def
       ? `${def.name}：${def.desc}`
-      : this.tool === 'pan' ? 'ドラッグで見る場所を動かす。設備を選ぶとマスをタップ／クリックで設置（コンベアはドラッグで連続設置）。'
+      : this.tool === 'pan' ? 'ドラッグで見る場所を動かす（2本指でピンチ拡大、PCはホイール）。設備を選ぶとマスをタップ／クリックで設置（コンベアはドラッグで連続設置）。'
         : this.tool === 'remove' ? 'タップした設備を撤去（代金の半分が戻る。中身は床に落ちる）。'
           : this.tool === 'prio' ? '電力が足りないとき、優先度の高い設備から電気が回る。タップで 高→中→低 と切り替え。'
             : 'タップした設備の向きを変える。';
@@ -110,12 +110,23 @@ export class BuildScreen {
   }
 
   _bindCanvas() {
-    let panning = null, laying = null, pointers = 0;
+    let panning = null, laying = null, pinch = null;
+    const pts = new Map(); // 2本指でピンチ拡大・移動
+    const pinchState = () => {
+      const [a, b] = [...pts.values()];
+      return { d: Math.hypot(a.x - b.x, a.y - b.y), cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2 };
+    };
     this.cv.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      pointers++;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       this.cv.setPointerCapture(e.pointerId);
-      if (this.tool === 'pan' || e.button === 1 || e.button === 2 || pointers > 1) {
+      if (pts.size === 2) {
+        const p0 = pinchState();
+        pinch = { ...p0, zoom: this.zoom, vx: this.view.x, vz: this.view.z };
+        panning = null; laying = null;
+        return;
+      }
+      if (this.tool === 'pan' || e.button === 1 || e.button === 2) {
         panning = { x: e.clientX, y: e.clientY, vx: this.view.x, vz: this.view.z };
         laying = null;
         return;
@@ -128,6 +139,16 @@ export class BuildScreen {
       }
     });
     this.cv.addEventListener('pointermove', (e) => {
+      if (pts.has(e.pointerId)) pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pinch && pts.size >= 2) {
+        const p1 = pinchState();
+        this.zoom = Math.max(0.6, Math.min(5, pinch.zoom * (p1.d / Math.max(10, pinch.d))));
+        const sc = this.scale / this.dpr;
+        this.view.x = pinch.vx - (p1.cx - pinch.cx) / sc;
+        this.view.z = pinch.vz - (p1.cy - pinch.cy) / sc;
+        this.draw();
+        return;
+      }
       if (panning) {
         const s = this.scale / this.dpr;
         this.view.x = panning.vx - (e.clientX - panning.x) / s;
@@ -150,7 +171,7 @@ export class BuildScreen {
       }
       if (!this.hover || this.hover[0] !== i || this.hover[1] !== j) { this.hover = [i, j]; this.draw(); }
     });
-    const up = () => { pointers = Math.max(0, pointers - 1); panning = null; laying = null; this.draw(); };
+    const up = (e) => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; panning = null; laying = null; this.draw(); };
     this.cv.addEventListener('pointerup', up);
     this.cv.addEventListener('pointercancel', up);
     this.cv.addEventListener('pointerleave', () => { this.hover = null; this.draw(); });

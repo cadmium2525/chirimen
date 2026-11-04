@@ -27,6 +27,7 @@ export class Game {
     this.tutorial = 0;
     this.dex = dex || {};  // 恒久図鑑 speciesId -> {protected, misshipped}
     if (saved) this._load(saved);
+    else this.stats.p4gift = true; // P4 以降に始めたゲームには電力移行の支給は不要
     this.factory = new Factory(this, saved?.factory);
   }
 

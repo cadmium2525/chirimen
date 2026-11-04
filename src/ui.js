@@ -111,6 +111,12 @@ export class UI {
         onSetting(b.parentElement.dataset.seg, b.dataset.v);
         this.showTab('settings');
       }));
+      const { onSaveNow, onExport, onImport, onWipe, fullscreen } = this.ctx;
+      $('btnSaveNow')?.addEventListener('click', async () => { await onSaveNow?.(); this.showTab('settings'); });
+      $('btnExport')?.addEventListener('click', () => onExport?.());
+      $('btnImport')?.addEventListener('click', () => onImport?.());
+      $('btnWipe')?.addEventListener('click', () => onWipe?.());
+      $('btnFull')?.addEventListener('click', () => fullscreen?.());
       $('btnNewPile').addEventListener('click', () => {
         if (confirm('今の山を手放して、新しいシードの山を始めますか？\n（お金・道具・図鑑は引き継ぎます。今の山のちりモンには二度と会えません）')) onNewPile();
       });
@@ -174,21 +180,48 @@ export class UI {
 
   _settingsHTML(s) {
     const seg = (key, opts) => `<div class="seg" data-seg="${key}">${opts.map(([v, l]) => `<button data-v="${v}" class="${String(s[key]) === v ? 'on' : ''}">${l}</button>`).join('')}</div>`;
-    return `<h2>設定</h2><div class="settings">
-      <label>画質</label>${seg('quality', [['auto', '自動'], ['low', '低'], ['standard', '標準'], ['high', '高']])}
-      <label>マウス感度</label><input type="range" min="0.2" max="3" step="0.1" value="${s.sens}" data-set="sens">
-      <label>タッチ感度</label><input type="range" min="0.2" max="3" step="0.1" value="${s.touchSens}" data-set="touchSens">
+    const { touch, saveInfo, fullscreen, qualityInfo } = this.ctx;
+    const si = saveInfo ? saveInfo() : {};
+    const qi = qualityInfo ? qualityInfo() : {};
+    const when = si.lastSaved ? new Date(si.lastSaved).toLocaleTimeString() : 'まだ保存していません';
+    return `<h2>設定</h2>
+    <h3>操作</h3><div class="settings">
+      ${touch ? `<label>タッチ感度</label><input type="range" min="0.2" max="3" step="0.1" value="${s.touchSens}" data-set="touchSens">`
+    : `<label>マウス感度</label><input type="range" min="0.2" max="3" step="0.1" value="${s.sens}" data-set="sens">`}
       <label>視野角（FOV）</label><input type="range" min="55" max="100" step="1" value="${s.fov}" data-set="fov">
       <label>歩行の揺れ</label>${seg('bob', [['true', 'ON'], ['false', 'OFF']])}
-      <label>照準補助</label>${seg('assist', [['low', '弱'], ['mid', '中'], ['high', '強']])}
+      <label>照準補助</label>${seg('assist', [['auto', '自動'], ['low', '弱'], ['mid', '中'], ['high', '強']])}
       <label>ちりモン強調</label>${seg('aid', [['auto', '自動'], ['on', 'ON'], ['off', 'OFF']])}
       <label>文字サイズ</label>${seg('textSize', [['s', '小'], ['m', '中'], ['l', '大']])}
-      <label>ボタン配置</label>${seg('layout', [['right', '右手'], ['left', '左手']])}
       <label>効果音</label>${seg('sound', [['true', 'ON'], ['false', 'OFF']])}
     </div>
-    <p class="muted small">「ちりモン強調：自動」は低画質のときだけ、露出したちりモンを光らせます（ルーペ購入後は常に光ります）。発見できる条件そのものは画質によって変わりません。端末によっては目標FPSに届かない場合があります。</p>
+    ${touch ? `<h3>スマホ</h3><div class="settings">
+      <label>ボタン配置</label>${seg('layout', [['right', '右手'], ['left', '左手']])}
+      <label>ボタンの大きさ</label>${seg('btnSize', [['s', '小'], ['m', '中'], ['l', '大']])}
+      <label>はなすを長押しで実行</label>${seg('holdRelease', [['false', 'OFF'], ['true', 'ON']])}
+      <label>振動</label>${seg('haptics', [['true', 'ON'], ['false', 'OFF']])}
+      ${fullscreen ? '<label>全画面</label><div><button id="btnFull">全画面・横向き固定</button></div>' : ''}
+    </div>
+    <p class="muted small">「はなすを長押し」をONにすると、［はなす］を0.35秒押し続けたときだけはなします（つまむとの押し間違い防止）。照準補助「自動」はスマホでは「強」になります。</p>` : ''}
+    <h3>画質</h3><div class="settings">
+      <label>画質</label>${seg('quality', [['auto', '自動'], ['low', '低'], ['standard', '標準'], ['high', '高']])}
+      <label>解像度</label>${seg('qRes', [['auto', '自動'], ['1', '100%'], ['0.75', '75%'], ['0.5', '50%']])}
+      <label>近景のしらす</label>${seg('qDensity', [['preset', '画質に合わせる'], ['low', '少'], ['mid', '中'], ['high', '多']])}
+      <label>影</label>${seg('qShadows', [['preset', '画質に合わせる'], ['on', 'ON'], ['off', 'OFF']])}
+      <label>描画距離</label>${seg('qDistance', [['preset', '画質に合わせる'], ['short', '短'], ['mid', '中'], ['long', '長']])}
+      <label>FPS表示</label>${seg('showFps', [['false', 'OFF'], ['true', 'ON']])}
+    </div>
+    <p class="muted small">いまの画質：${qi.label || ''}${qi.autoStep ? '（重いため自動で下げています）' : ''}。「自動」は端末に合わせて選び、重い状態が続くと一段下げます。解像度「自動」は目標FPSに合わせて描画解像度を上下させます。性能によっては目標FPS（低30／標準45／高60）に届かない端末があります。「ちりモン強調：自動」は低画質のときだけ光らせます。発見できる条件は画質で変わりません。</p>
+    <h3>セーブ</h3>
+    <div class="small">最後のセーブ：${when}${si.persistent ? '　・　この端末に永続保存（自動削除されにくい）' : ''}</div>
+    <div class="row" style="justify-content:flex-start">
+      <button id="btnSaveNow">今すぐセーブ</button>
+      <button id="btnExport">書き出し（ファイル）</button>
+      <button id="btnImport">読み込み（ファイル）</button>
+    </div>
+    <p class="muted small">セーブはこのブラウザの中に15秒ごと・アプリ切り替え時に自動保存されます（2つの枠に交互に書き、壊れていたら一つ前から復元）。別の端末へ移すときは「書き出し」したファイルを、移した先で「読み込み」してください。</p>
     <h3>山</h3>
-    <div class="row" style="justify-content:flex-start"><button id="btnNewPile">新しい山を始める</button></div>`;
+    <div class="row" style="justify-content:flex-start"><button id="btnNewPile">新しい山を始める</button><button id="btnWipe">この端末のデータを消去</button></div>`;
   }
 
   // ===== ショップ =====

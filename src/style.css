@@ -155,3 +155,13 @@ table.stats td:last-child { text-align: right; font-variant-numeric: tabular-num
   .build-tools button { font-size: 0.72em; padding: 0.25em 0.55em; }
   .build-hint { display: none; }
 }
+
+/* ---------- P5：スマホ操作 ---------- */
+* { -webkit-tap-highlight-color: transparent; }
+body[data-btn="s"] #btns { transform: scale(0.82); transform-origin: bottom right; }
+body[data-btn="l"] #btns { transform: scale(1.22); transform-origin: bottom right; }
+body.left-handed[data-btn] #btns { transform-origin: bottom left; }
+#btnRelease { position: relative; overflow: hidden; }
+#btnRelease.charging::after { content: ''; position: absolute; inset: 0; background: rgba(255, 207, 74, 0.55); transform-origin: bottom; animation: charge 0.35s linear forwards; }
+@keyframes charge { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+.settings .seg button { white-space: nowrap; }
