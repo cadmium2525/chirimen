@@ -35,7 +35,7 @@ export class UI {
     const cap = game.capacity();
     const chiri = game.heldChirimon().length;
     this.el.hand.textContent = `${game.tool === 'scoop' ? 'スコップ' : '手'} ${game.hand.length} / ${cap}匹` + (chiri ? `（ちりモン ${chiri}）` : '')
-      + (game.carryMul() < 0.999 ? `　重い：足 -${Math.round((1 - game.carryMul()) * 100)}%` : '');
+      + (game.carryMul() <= 0.95 ? `　重い：足 -${Math.round((1 - game.carryMul()) * 100)}%` : '');
     this.el.hand.classList.toggle('warn', chiri > 0);
     const hasScoop = game.scoopCap() > 0;
     this.el.tool.hidden = !hasScoop;
@@ -243,8 +243,9 @@ export class UI {
     this.el.shopMoney.textContent = `所持金 ${fmt(game.money)}円`;
     this.el.shopList.innerHTML = UPGRADES.map((u) => {
       const owned = game.has(u.id);
-      const locked = u.requires && !game.has(u.requires);
-      const req = locked ? `（先に「${UPGRADES.find((x) => x.id === u.requires).name}」が必要）` : '';
+      const locked = !game.unlocked(u);
+      const req = !locked ? '' : u.requires && !game.has(u.requires)
+        ? `（先に「${UPGRADES.find((x) => x.id === u.requires).name}」が必要）` : '（先にクレーンを建設画面で設置）';
       return `<div class="shop-item ${owned ? 'owned' : ''} ${locked ? 'locked' : ''}">
         <div class="n">${u.name}</div>
         <button data-buy="${u.id}" ${owned || !game.canBuy(u) ? 'disabled' : ''}>${owned ? '購入済み' : `${fmt(u.price)}円`}</button>

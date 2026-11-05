@@ -276,7 +276,7 @@ function updatePrompt() {
           const dug = pile.dugAt(t.point.x, t.point.z);
           let line = dug >= 0.002 ? `ここは ${(dug * 100).toFixed(1)}cm 掘った` : '';
           if (sense) {
-            const strong = sense.dist < 0.08 && sense.depth < 0.016;
+            const strong = sense.dist < 0.05 && sense.depth < 0.016;
             const where = strong ? '' : senseDir(sense);
             line += `${line ? '　' : ''}${strong ? '……すぐ下に何かいる！' : sense.dist < 0.15 ? `……何かの気配が強い${where}` : `……かすかに何かの気配${where}`}`;
             if (strong) cls = 'chiri';
@@ -379,7 +379,7 @@ function doInteract() {
 function openBuild() {
   pause();
   input.exitLock();
-  fview.showRings(true);
+  fview.showRings(true, game.factory.craneReach());
   build.open({ factory: game.factory, pile, player, game, onChange: () => ui.updateHUD(game) });
 }
 
@@ -414,10 +414,10 @@ function refreshObjective() {
   if (game.tutorial < steps.length) ui.setObjective(`<span class="small muted">目標 ${game.tutorial + 1}/${steps.length}</span><br>${steps[game.tutorial]}`);
   else {
     const found = SPECIES.filter((sp) => game.dex[sp.id]?.protected).length;
-    const next = UPGRADES.find((u) => !game.has(u.id) && (!u.requires || game.has(u.requires)));
+    const next = UPGRADES.find((u) => !game.has(u.id) && game.unlocked(u));
     const buildHint = !game.factory.machines.size && game.money >= 600
       ? `<br><span class="small">${isTouch ? '［建設］' : '<b>B</b>'}で建設画面。ホッパー→コンベア→計量機／包装機とつなげば自動で出荷できる</span>` : '';
-    ui.setObjective(`図鑑 <b>${found}/${SPECIES.length}</b> 種` + (next ? `<br><span class="small muted">次の道具：${next.name}（${next.price.toLocaleString()}円）</span>` : '') + buildHint);
+    ui.setObjective(`図鑑 <b>${found}/${SPECIES.length}</b> 種` + (next ? `<br><span class="small muted">次の${next.needs ? '改良' : '道具'}：${next.name}（${next.price.toLocaleString()}円）</span>` : '') + buildHint);
   }
 }
 

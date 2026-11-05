@@ -1,7 +1,8 @@
 // ゲーム全体の定数（数値はすべて仮値。企画書 2.3 / 3.1 参照）
 export const SAVE_VERSION = 2;
-export const GAME_VERSION = '0.8.0';
+export const GAME_VERSION = '0.9.0';
 export const CHANGELOG = [
+  ['0.9.0', '拡張期の経済：クレーン・発電機は台数で値段が上がる、工場の改良（長いアーム・高速包装機・高速クレーン・大きなつかみ）、燃料の後払い、空振りクレーンの待機、序盤の道具を値下げ'],
   ['0.8.0', '経済の調整：手作業の天井（スコップ・運搬箱・台車の容量見直し、重いと足が遅い）と自動化の強化（クレーン・包装機の能力、燃料費）。セーブの不整合の修正、「気配」の方向表示'],
   ['0.7.0', 'プレイテストを受けた改善：セーブの保護と自動修復、掘った跡の色と「気配」、ちりモン入り包装の警告、最後の端数パック、計量機へ全方向から搬入、電力不足でラインが止まらない、スマホのピンチ誤設置の修正'],
   ['0.6.0', '公開版の仕上げ：目標の矢印、初めてのちりモンに出会える配置、山の処理完了画面、エラー時の保護、ホーム画面に追加'],
@@ -43,15 +44,20 @@ export const UPGRADES = [
   { id: 'glove3', name: 'ゴム手袋', desc: '一度につまめる数が 20匹 になる。', price: 250, cap: 20, requires: 'glove2' },
   { id: 'boots', name: '長靴', desc: '移動速度が 35% 上がる。', price: 80 },
   { id: 'loupe', name: 'ルーペ', desc: '近くで露出しているちりモンがキラリと光るようになる。', price: 600 },
-  { id: 'glove4', name: '作業グローブ', desc: '一度につまめる数が 50匹 になる。', price: 1200, cap: 50, requires: 'glove3' },
-  { id: 'scoop', name: 'スコップ', desc: '道具「スコップ」を解放。山の表面を 100匹 まとめてすくう（ちりモンも混ざる）。', price: 3000, scoopCap: 100, requires: 'glove2' },
+  { id: 'glove4', name: '作業グローブ', desc: '一度につまめる数が 50匹 になる。', price: 800, cap: 50, requires: 'glove3' },
+  { id: 'scoop', name: 'スコップ', desc: '道具「スコップ」を解放。山の表面を 100匹 まとめてすくう（ちりモンも混ざる）。', price: 2000, scoopCap: 100, requires: 'glove2' },
+  { id: 'bigscoop', name: '大スコップ', desc: 'スコップで一度に 200匹 すくえる。', price: 2500, scoopCap: 200, requires: 'scoop' },
   { id: 'box', name: '運搬箱', desc: 'スコップで何度もすくって箱にためられる（最大 300匹）。たくさん持つと足が遅くなる。', price: 2500, holdCap: 300, requires: 'scoop' },
   { id: 'cart', name: '台車', desc: '台車に箱を載せて運ぶ（最大 500匹）。重いと足が遅くなる。', price: 6000, holdCap: 500, requires: 'box' },
-  { id: 'bigscoop', name: '大スコップ', desc: 'スコップで一度に 200匹 すくえる。', price: 4000, scoopCap: 200, requires: 'scoop' },
+  // 工場の改良（クレーンを1台でも置くと買える。すべての設備に効く）
+  { id: 'longarm', name: '長いアーム', desc: 'クレーンの腕が 3.2m まで届く（山の奥まで取れる）。', price: 25000, needs: 'crane', craneReach: 3.2 },
+  { id: 'fastpacker', name: '高速包装機', desc: '包装機の包装間隔が 0.15秒 → 0.09秒 になる（1台で毎秒 約220匹）。', price: 40000, needs: 'crane', packInterval: 0.09 },
+  { id: 'fastcrane', name: '高速クレーン', desc: 'クレーンの動きが速くなる（1周期 3.0秒 → 2.2秒）。', price: 60000, needs: 'crane', craneCycle: 2.2 },
+  { id: 'bigclaw', name: '大きなつかみ', desc: 'クレーンが一度に 540匹 つかむ。', price: 150000, needs: 'crane', craneGrab: 540, requires: 'fastcrane' },
 ];
 
 // 持ち運びの重さ：LIGHT 匹までは普通の速さ。それを超えると重くなり、HEAVY 匹で最も遅く（MIN 倍）なる
-export const CARRY = { light: 50, heavy: 600, min: 0.5 };
+export const CARRY = { light: 50, heavy: 500, min: 0.55 };
 
 // ===== P3：搬送設備 =====
 // 建設グリッド（作業場の床を 0.5m 四方のマスで管理）
@@ -73,16 +79,17 @@ export const MACHINES = {
     desc: '1×2マス。後ろの面から受け取り20匹ずつ包装・出荷。正面の出荷口マスは空けておく必要がある。',
   },
   crane: {
-    name: 'クレーン', price: 15000, blocks: true, size: [1, 1], power: 5, prio: 0, reach: 2.2, grab: 360, cycle: 3.0,
-    desc: '山の近くに設置。可動範囲（半径2.2m）の一番高い所を360匹ずつつかみ、向きの方向のホッパー／ベルトへ降ろす。',
+    // priceGrowth: 持っている台数ごとに値段が上がる。refund: 撤去で戻る割合（クレーンは移設しやすいよう全額）
+    name: 'クレーン', price: 15000, priceGrowth: 1.7, refund: 1, blocks: true, size: [1, 1], power: 5, prio: 0, reach: 2.2, grab: 360, cycle: 3.0,
+    desc: '山の近くに設置。可動範囲（半径2.2m）の一番高い所を360匹ずつつかみ（2台目からは値段が上がる。撤去すると全額戻る）、向きの方向のホッパー／ベルトへ降ろす。',
   },
   sorter: {
     name: '選別機', price: 9000, blocks: true, size: [1, 1], power: 2, prio: 2, capacity: 200, bin: 12, detect: 0.85, interval: 0.4,
     desc: 'ライン途中に置く。後ろから受け取り、ちりモンを検出率85%で回収箱へ分け、しらすは前へ流す。処理は少し遅い。',
   },
   generator: {
-    name: '発電機', price: 20000, blocks: true, size: [2, 2], output: 12, coverage: 3.5, link: 5, fuelCost: 1.2,
-    desc: '2×2マス。周囲1マスは通路として空ける。半径3.5mへ12kWを供給。燃料費は負荷1kWあたり1.2円/秒。',
+    name: '発電機', price: 20000, priceGrowth: 1.5, blocks: true, size: [2, 2], output: 12, coverage: 3.5, link: 5, fuelCost: 1.2,
+    desc: '2×2マス。周囲1マスは通路として空ける。半径3.5mへ12kWを供給。燃料費は負荷1kWあたり1.2円/秒（所持金が足りなければ売上から後払い）。2台目からは値段が上がる。',
   },
   pole: {
     name: '電柱', price: 300, blocks: false, size: [1, 1], coverage: 3, link: 5,
@@ -97,7 +104,7 @@ export const BELT = {
   speed: 1.5,        // マス/秒
   spacing: 0.34,     // バッチ同士の間隔（マス）
   hopperBatch: 60,   // ホッパーが一度に送り出す匹数
-  hopperInterval: 0.35,
+  hopperInterval: 0.25,
   packInterval: 0.15,
 };
 

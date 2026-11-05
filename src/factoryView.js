@@ -301,7 +301,10 @@ export class FactoryView {
     this.targets = [...this.items.values()].map((it) => it.hit);
   }
 
-  showRings(on) { for (const it of this.items.values()) if (it.parts.ring) it.parts.ring.visible = on; }
+  showRings(on, reach = MACHINES.crane.reach) {
+    const k = reach / MACHINES.crane.reach; // 長いアームの分だけ広げる
+    for (const it of this.items.values()) if (it.parts.ring) { it.parts.ring.visible = on; it.parts.ring.scale.set(k, k, 1); }
+  }
 
   _updateWires(f) {
     if (this.wireV === f.netVersion || !f.links) return;

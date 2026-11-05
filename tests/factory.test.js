@@ -334,11 +334,59 @@ test('経済：クレーン1台のラインは手作業の上限より稼ぎ、�
   void pile;
 });
 
-test('経済：クレーンは低い柱も最後までつかむ。「次の道具」は運搬箱→台車→大スコップの順', () => {
+test('経済：クレーンは低い柱も最後までつかむ。「次の道具」はスコップ→大スコップ→運搬箱→台車の順', () => {
   const { pile, f } = newGame();
   const x = pile.cx + pile.radius - 0.2;
   const t = f._craneTarget(x, 0, 0.06);
   assert.ok(t && t.h < 0.02, '高さ2cm未満の柱も対象になる');
   const order = UPGRADES.map((u) => u.id);
-  assert.ok(order.indexOf('scoop') < order.indexOf('box') && order.indexOf('box') < order.indexOf('cart') && order.indexOf('cart') < order.indexOf('bigscoop'));
+  assert.ok(order.indexOf('scoop') < order.indexOf('bigscoop') && order.indexOf('bigscoop') < order.indexOf('box') && order.indexOf('box') < order.indexOf('cart'));
+});
+
+test('経済：クレーン・発電機は台数ごとに値段が上がり、クレーンの撤去は全額戻る', () => {
+  const { g, f } = makeLine();
+  const p2 = f.priceOf('crane');
+  assert.equal(p2, Math.round(MACHINES.crane.price * MACHINES.crane.priceGrowth / 100) * 100);
+  assert.ok(f.priceOf('generator') > MACHINES.generator.price);
+  assert.equal(f.priceOf('conveyor'), MACHINES.conveyor.price);
+  const crane = [...f.machines.values()].find((m) => m.type === 'crane');
+  const money = g.money;
+  f.remove(crane.i, crane.j);
+  assert.equal(g.money, money + MACHINES.crane.price);
+  assert.equal(f.priceOf('crane'), MACHINES.crane.price);
+});
+
+test('所持金0でラインを完成させても、燃料を後払いして動き出す', () => {
+  const { g, f } = makeLine();
+  g.money = 0;
+  run(f, 60);
+  assert.ok(g.packs > 50, `packs ${g.packs}`);
+  assert.ok(g.money > 0 && Number.isInteger(g.money));
+  assert.ok((f.fuelDebt || 0) < 1);
+  assert.ok(g.invariant().ok);
+});
+
+test('届く範囲が空のクレーンは待機電力になり、建設画面に理由が出る', () => {
+  const { pile, f } = makeLine();
+  const crane = [...f.machines.values()].find((m) => m.type === 'crane');
+  for (const c of pile.colsInRadius(f.cx(crane.i), f.cz(crane.j), f.craneReach())) {
+    while (pile.top[c] < pile.count(c)) pile.remove(pile.start[c] + pile.top[c]);
+  }
+  run(f, 10);
+  assert.ok(crane.starved);
+  assert.ok(f.issues(crane).some((x) => x.includes('届く範囲にしらすがない')));
+  assert.ok(f.demandOf(crane) < 1);
+  assert.equal(f.reachCount(crane.i, crane.j), 0);
+});
+
+test('工場の改良はクレーンを置くと買え、ラインの能力が上がる', () => {
+  const base = makeLine();
+  run(base.f, 120);
+  const up = makeLine();
+  assert.ok(!new Game(new PileModel(SEED)).unlocked(UPGRADES.find((u) => u.id === 'fastcrane')), 'クレーンがないと買えない');
+  for (const id of ['longarm', 'fastpacker', 'fastcrane', 'bigclaw']) assert.ok(up.g.buy(id), id);
+  assert.ok(up.f.craneReach() > MACHINES.crane.reach && up.f.packInterval() < 0.15);
+  run(up.f, 120);
+  assert.ok(up.g.packs > base.g.packs * 1.6, `${up.g.packs} vs ${base.g.packs}`);
+  assert.ok(up.g.invariant().ok);
 });

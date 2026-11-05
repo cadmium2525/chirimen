@@ -73,7 +73,7 @@ export class BuildScreen {
     const arrow = ['→', '↓', '←', '↑'][this.dir];
     el.innerHTML = TOOLS.map((t) => {
       const def = MACHINES[t.id];
-      const label = def ? `${def.name}<br><small>${def.price.toLocaleString()}円</small>` : t.label;
+      const label = def ? `${def.name}<br><small>${this.ctx.factory.priceOf(t.id).toLocaleString()}円</small>` : t.label;
       return `<button data-tool="${t.id}" class="${this.tool === t.id ? 'on' : ''}">${label}</button>`;
     }).join('') + `<button data-dir="1" title="R">向き ${arrow}<br><small>[R]</small></button>`;
     el.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => { this.tool = b.dataset.tool; this._renderTools(); this.draw(); }));
@@ -209,6 +209,7 @@ export class BuildScreen {
     const { factory, player } = this.ctx;
     const r = factory.place(type, i, j, dir, player);
     this.status = r.ok ? `${MACHINES[type].name}を設置した` : `設置できない：${r.reason}`;
+    if (r.ok && MACHINES[type].priceGrowth) this._renderTools(); // 次の1台の値段を表示し直す
     this.ctx.onChange?.();
     this.draw();
     return r.ok;
@@ -218,7 +219,7 @@ export class BuildScreen {
     const { factory } = this.ctx;
     const m = factory.get(i, j);
     if (this.tool === 'remove') {
-      if (m) { factory.remove(i, j); this.status = `${MACHINES[m.type].name}を撤去した（${Math.floor(MACHINES[m.type].price / 2).toLocaleString()}円 戻った）`; }
+      if (m) { const back = factory.refundOf(m); factory.remove(i, j); this.status = `${MACHINES[m.type].name}を撤去した（${back.toLocaleString()}円 戻った）`; this._renderTools(); }
       this.ctx.onChange?.();
     } else if (this.tool === 'rotate' || (MACHINES[this.tool] && m && m.type === this.tool)) {
       if (m) { const r = factory.rotate(i, j); this.status = r.ok ? '向きを変えた' : `向きを変えられない：${r.reason}`; }
@@ -319,7 +320,7 @@ export class BuildScreen {
         const [cx, cy] = this.toScreen(cc.x, cc.z);
         g.strokeStyle = 'rgba(232,184,39,0.6)';
         g.setLineDash([6, 6]);
-        g.beginPath(); g.arc(cx, cy, MACHINES.crane.reach * s, 0, Math.PI * 2); g.stroke();
+        g.beginPath(); g.arc(cx, cy, factory.craneReach() * s, 0, Math.PI * 2); g.stroke();
         g.setLineDash([]);
       }
       const iss = factory.issues(m).filter((x) => x !== '停止中');
@@ -359,7 +360,7 @@ export class BuildScreen {
           const [sx, sy] = this.toScreen(factory.cx(fi) - c / 2, factory.cz(fj) - c / 2);
           g.strokeStyle = '#fff'; g.setLineDash([3, 3]); g.strokeRect(sx + 2, sy + 2, c * s - 4, c * s - 4); g.setLineDash([]);
         }
-        const cov = this.tool === 'crane' ? MACHINES.crane.reach : MACHINES[this.tool].coverage;
+        const cov = this.tool === 'crane' ? factory.craneReach() : MACHINES[this.tool].coverage;
         if (cov) {
           const cells = factory.cellsFor(this.tool, i, j, this.dir);
           const mx = cells.reduce((acc, [a]) => acc + factory.cx(a), 0) / cells.length;
@@ -368,7 +369,12 @@ export class BuildScreen {
           g.strokeStyle = '#fff'; g.setLineDash([4, 4]);
           g.beginPath(); g.arc(cx, cy, cov * s, 0, Math.PI * 2); g.stroke(); g.setLineDash([]);
         }
-        this.status = can.ok ? `${MACHINES[this.tool].name}：${MACHINES[this.tool].price.toLocaleString()}円` : `ここには置けない：${can.reason}`;
+        let reach = '';
+        if (this.tool === 'crane' && can.ok) {
+          const n = factory.reachCount(i, j);
+          reach = `｜届く範囲に 約${n >= 10000 ? `${Math.round(n / 10000)}万` : n.toLocaleString()}匹${n < 50000 ? '（少ない：もっと山に近い所へ）' : ''}`;
+        }
+        this.status = can.ok ? `${MACHINES[this.tool].name}：${factory.priceOf(this.tool).toLocaleString()}円${reach}` : `ここには置けない：${can.reason}`;
       } else if (existing) {
         const def = MACHINES[existing.type];
         const iss = factory.issues(existing);

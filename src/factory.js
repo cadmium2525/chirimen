@@ -13,6 +13,7 @@ export const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 export const DIR_NAMES = ['→', '↓', '←', '↑']; // 上から見た図（+Z が下）
 
 const STEP = 0.05;
+const CRANE_STANDBY_KW = 0.3; // 届く範囲が空のクレーンの待機電力
 // 計量機の本体（world.js の障害物と同じ範囲）。これに重なるマスへ出せば、どの面からでも計量機に入る
 const SCALE_BOX = { minX: LAYOUT.scale.x - 0.4, maxX: LAYOUT.scale.x + 0.4, minZ: LAYOUT.scale.z - 0.4, maxZ: LAYOUT.scale.z + 0.4 };
 const CONSUMERS = new Set(['conveyor', 'hopper', 'packer', 'crane', 'sorter']);
@@ -141,10 +142,10 @@ export class Factory {
     if (type === 'crane') {
       const pile = this.game.pile;
       const d = Math.hypot(this.cx(i) - pile.cx, this.cz(j) - pile.cz);
-      if (d > pile.radius + 1.6) return { ok: false, reason: '山から遠すぎる（クレーンの腕が届かない）' };
+      if (d > pile.radius + this.craneReach() - 0.6) return { ok: false, reason: '山から遠すぎる（クレーンの腕が届かない）' };
     }
     if (def.blocks && !this._pathsOk(cells, ignore, player)) return { ok: false, reason: '人の通路がふさがる（計量機・ケース・端末・山へ歩いて行けなくなる）' };
-    if (!ignoreMoney && this.game.money < def.price) return { ok: false, reason: 'お金が足りない' };
+    if (!ignoreMoney && this.game.money < this.priceOf(type)) return { ok: false, reason: 'お金が足りない' };
     return { ok: true };
   }
 
@@ -246,9 +247,10 @@ export class Factory {
     const can = this.canPlace(type, i, j, player, { dir });
     if (!can.ok) return can;
     const def = MACHINES[type];
-    this.game.money -= def.price;
+    const paid = this.priceOf(type);
+    this.game.money -= paid;
     const m = {
-      id: this.nextId++, type, i, j, dir: dir & 3, on: true, prio: def.prio ?? 1,
+      id: this.nextId++, type, i, j, dir: dir & 3, on: true, prio: def.prio ?? 1, paid,
       batches: [], buffer: [], bin: [], timer: 0, phase: 'idle', t: 0, tx: 0, tz: 0, holding: [], packs: 0, power: 0,
     };
     this._occupy(m);
@@ -275,7 +277,7 @@ export class Factory {
     const c = this.center(m);
     if (ids.length) this.game.dropIdsToFloor(ids, c);
     this._unoccupy(m);
-    this.game.money += Math.floor(MACHINES[m.type].price / 2);
+    this.game.money += this.refundOf(m);
     this.version++;
     this.game.emit('changed');
     return true;
@@ -295,6 +297,38 @@ export class Factory {
     } else m.dir = nd;
     this.version++;
     return { ok: true };
+  }
+
+  /** いまの値段（台数で上がる設備は、持っている台数に応じて） */
+  priceOf(type) {
+    const def = MACHINES[type];
+    if (!def.priceGrowth) return def.price;
+    let n = 0;
+    for (const m of this.machines.values()) if (m.type === type) n++;
+    return Math.round(def.price * def.priceGrowth ** n / 100) * 100;
+  }
+
+  /** 撤去で戻る金額 */
+  refundOf(m) {
+    const def = MACHINES[m.type];
+    return Math.floor((m.paid ?? def.price) * (def.refund ?? 0.5));
+  }
+
+  // 工場の改良を反映した値
+  craneReach() { return this.game.upgradeValue('craneReach', MACHINES.crane.reach); }
+  craneCycle() { return this.game.upgradeValue('craneCycle', MACHINES.crane.cycle); }
+  craneGrab() { return this.game.upgradeValue('craneGrab', MACHINES.crane.grab); }
+  packInterval() { return this.game.upgradeValue('packInterval', BELT.packInterval); }
+
+  /** 消費電力（届く範囲にしらすがないクレーンは待機電力だけ） */
+  demandOf(m) { return m.type === 'crane' && m.starved ? CRANE_STANDBY_KW : MACHINES[m.type].power; }
+
+  /** クレーンをここに置いたとき、届く範囲に残っている匹数 */
+  reachCount(i, j) {
+    const pile = this.game.pile;
+    let n = 0;
+    for (const c of pile.colsInRadius(this.cx(i), this.cz(j), this.craneReach())) n += pile.count(c) - pile.top[c];
+    return n;
   }
 
   cyclePrio(m) { m.prio = (m.prio + 2) % 3; this.version++; }
@@ -418,7 +452,9 @@ export class Factory {
       if (this.get(fi, fj) || this._staticAt(fi, fj)) out.push('出荷口がふさがれている');
     }
     if (m.type === 'sorter' && m.bin.length >= MACHINES.sorter.bin) out.push('回収箱がいっぱい（ちりモンを取り出して）');
-    if (m.type === 'generator' && m.on && this.game.money <= 0) out.push('燃料費が払えない');
+    if (m.type === 'crane' && m.on && m.starved) out.push('届く範囲にしらすがない（撤去すると全額戻るので、山の別の場所へ移そう）');
+    if (m.type === 'packer' && m.buffer.length >= MACHINES.packer.capacity * 0.9) out.push('包装が追いつかない（包装機を増やす／高速包装機）');
+    if (m.type === 'generator' && m.on && this.fuelDebt >= 1 && this.game.money < 1) out.push(`燃料費を後払い中（${Math.floor(this.fuelDebt)}円）`);
     if (!m.on) out.push('停止中');
     return out;
   }
@@ -510,7 +546,8 @@ export class Factory {
     const game = this.game;
     let fuel = 0;
     for (const net of this.nets) {
-      const genAvail = net.gens.filter((g) => g.on && game.money > 0);
+      // 燃料費は後払いできる（所持金が0でも発電機は動き、売上から払う）
+      const genAvail = net.gens.filter((g) => g.on);
       const panelOut = net.panel ? POWER_PANEL.output : 0;
       const genOut = genAvail.length * MACHINES.generator.output;
       const supply = panelOut + genOut;
@@ -521,7 +558,7 @@ export class Factory {
       for (const prio of [2, 1, 0]) {
         const tier = list.filter((m) => (m.prio ?? 1) === prio);
         if (!tier.length) continue;
-        const need = tier.reduce((a, m) => a + MACHINES[m.type].power, 0);
+        const need = tier.reduce((a, m) => a + this.demandOf(m), 0);
         demand += need;
         const ratio = need <= remain + 1e-9 ? 1 : Math.max(0, remain / need);
         for (const m of tier) m.power = ratio;
@@ -537,14 +574,13 @@ export class Factory {
     if (fuel > 0) {
       // 燃料費は 1円 たまるごとに払う（所持金を整数のまま保つ）
       this.fuelDebt = (this.fuelDebt || 0) + fuel;
-      const pay = Math.floor(this.fuelDebt);
-      if (pay > 0) {
-        this.fuelDebt -= pay;
-        game.money = Math.max(0, game.money - pay);
-        game.stats.fuel = (game.stats.fuel || 0) + pay;
-      }
-      if (game.money <= 0 && !this.noFuelWarned) { this.noFuelWarned = true; game.emit('toast', { text: '燃料費が払えず、発電機が止まった' }); }
-      if (game.money > 50) this.noFuelWarned = false;
+    }
+    // 1円 たまるごとに、払える分だけ払う（払えない分は次の売上から）
+    const pay = Math.min(Math.floor(this.fuelDebt || 0), Math.floor(game.money));
+    if (pay > 0) {
+      this.fuelDebt -= pay;
+      game.money -= pay;
+      game.stats.fuel = (game.stats.fuel || 0) + pay;
     }
   }
 
@@ -605,7 +641,7 @@ export class Factory {
     if (m.timer > 0 || m.buffer.length < PACK_SIZE) return;
     const [fi, fj] = this.front(m);
     if (this.get(fi, fj) || this._staticAt(fi, fj)) return; // 出荷口がふさがれている
-    m.timer = BELT.packInterval;
+    m.timer = this.packInterval();
     this.game.shipPack(m.buffer.splice(0, PACK_SIZE), 'packer');
     m.packs++;
   }
@@ -634,29 +670,31 @@ export class Factory {
 
   /** クレーン：待機 → 腕を伸ばす → つかむ → 戻す → 降ろす */
   _crane(m, dt) {
-    const def = MACHINES.crane;
+    const cycle = this.craneCycle();
     m.t += dt;
     const x = this.cx(m.i), z = this.cz(m.j);
     if (m.phase === 'idle') {
       if (m.t < 0.4) return;
-      const target = this._craneTarget(x, z, def.reach);
-      if (!target) { m.t = -1; return; }
+      const target = this._craneTarget(x, z, this.craneReach());
+      // 届く範囲が空なら待機（消費電力を下げ、建設画面で知らせる）。しばらくしてから探し直す
+      if (!target) { m.starved = true; m.t = -1.6; return; }
+      m.starved = false;
       m.tx = target.x; m.tz = target.z;
       m.phase = 'out'; m.t = 0;
-    } else if (m.phase === 'out' && m.t >= def.cycle * 0.35) {
+    } else if (m.phase === 'out' && m.t >= cycle * 0.35) {
       m.phase = 'grab'; m.t = 0;
-    } else if (m.phase === 'grab' && m.t >= def.cycle * 0.12) {
-      m.holding = this.game.machineGrab(m.tx, m.tz, 0.2, def.grab);
+    } else if (m.phase === 'grab' && m.t >= cycle * 0.12) {
+      m.holding = this.game.machineGrab(m.tx, m.tz, 0.2, this.craneGrab());
       m.phase = 'back'; m.t = 0;
-    } else if (m.phase === 'back' && m.t >= def.cycle * 0.35) {
+    } else if (m.phase === 'back' && m.t >= cycle * 0.35) {
       m.phase = 'drop'; m.t = 0;
-    } else if (m.phase === 'drop' && m.t >= def.cycle * 0.18) {
+    } else if (m.phase === 'drop' && m.t >= cycle * 0.18) {
       const [ni, nj] = this.front(m);
       if (!m.holding.length || this.deliver(ni, nj, m.holding, m.dir)) {
         m.holding = [];
         m.phase = 'idle'; m.t = 0;
       } else {
-        m.t = def.cycle * 0.18 - 0.3;
+        m.t = cycle * 0.18 - 0.3;
       }
     }
   }
@@ -676,7 +714,6 @@ export class Factory {
 
   /** クレーンの腕の先の位置（描画用） */
   craneArm(m) {
-    const def = MACHINES.crane;
     const x = this.cx(m.i), z = this.cz(m.j);
     const [dx, dz] = DIRS[m.dir];
     const home = { x: x + dx * 0.5, z: z + dz * 0.5 };
@@ -684,9 +721,9 @@ export class Factory {
     const th = this.game.pile.heightAt(tgt.x, tgt.z);
     const ease = (t) => t * t * (3 - 2 * t);
     let p = 0, drop = 0;
-    if (m.phase === 'out') p = ease(Math.min(1, m.t / (def.cycle * 0.35)));
-    else if (m.phase === 'grab') { p = 1; drop = Math.sin(Math.min(1, m.t / (def.cycle * 0.12)) * Math.PI); }
-    else if (m.phase === 'back') p = 1 - ease(Math.min(1, m.t / (def.cycle * 0.35)));
+    if (m.phase === 'out') p = ease(Math.min(1, m.t / (this.craneCycle() * 0.35)));
+    else if (m.phase === 'grab') { p = 1; drop = Math.sin(Math.min(1, m.t / (this.craneCycle() * 0.12)) * Math.PI); }
+    else if (m.phase === 'back') p = 1 - ease(Math.min(1, m.t / (this.craneCycle() * 0.35)));
     let y = 2.2;
     if (m.phase === 'grab') y = 2.2 + (th + 0.06 - 2.2) * drop;
     else if (m.phase === 'drop') y = 1.45;
@@ -705,13 +742,15 @@ export class Factory {
       machines: [...this.machines.values()].map((m) => ({
         id: m.id, type: m.type, i: m.i, j: m.j, dir: m.dir, on: m.on, prio: m.prio,
         batches: m.batches.map((b) => ({ ids: b.ids, pos: b.pos })), buffer: m.buffer, holding: m.holding, bin: m.bin,
-        timer: m.timer, phase: m.phase, t: m.t, tx: m.tx, tz: m.tz, packs: m.packs,
+        timer: m.timer, phase: m.phase, t: m.t, tx: m.tx, tz: m.tz, packs: m.packs, paid: m.paid,
       })),
+      fuelDebt: this.fuelDebt || 0,
     };
   }
 
   _load(s) {
     this.nextId = s.nextId || 1;
+    this.fuelDebt = s.fuelDebt || 0;
     const pile = this.game.pile;
     const list = [...(s.machines || [])].sort((x, y) => (MACHINES[x.type].size[1] > 1 || x.type === 'generator' ? 1 : 0) - (MACHINES[y.type].size[1] > 1 || y.type === 'generator' ? 1 : 0));
     for (const d of list) {

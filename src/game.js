@@ -78,10 +78,23 @@ export class Game {
     return true;
   }
 
-  canBuy(u) {
-    if (this.has(u.id)) return false;
+  /** 前提（先に必要な道具・設置済みの設備）を満たしているか */
+  unlocked(u) {
     if (u.requires && !this.has(u.requires)) return false;
+    if (u.needs && ![...this.factory.machines.values()].some((m) => m.type === u.needs)) return false;
+    return true;
+  }
+
+  canBuy(u) {
+    if (this.has(u.id) || !this.unlocked(u)) return false;
     return this.money >= u.price;
+  }
+
+  /** 工場の改良の効果（買っていなければ既定値） */
+  upgradeValue(key, base) {
+    let v = base;
+    for (const u of UPGRADES) if (u[key] != null && this.has(u.id)) v = u[key];
+    return v;
   }
 
   buy(id) {
