@@ -276,8 +276,9 @@ function updatePrompt() {
           const dug = pile.dugAt(t.point.x, t.point.z);
           let line = dug >= 0.002 ? `ここは ${(dug * 100).toFixed(1)}cm 掘った` : '';
           if (sense) {
-            const strong = sense.dist < 0.1 && sense.depth < 0.007;
-            line += `${line ? '　' : ''}${strong ? '……すぐ下に何かいる！' : sense.dist < 0.15 ? '……何かの気配が強い' : '……かすかに何かの気配'}`;
+            const strong = sense.dist < 0.08 && sense.depth < 0.016;
+            const where = strong ? '' : senseDir(sense);
+            line += `${line ? '　' : ''}${strong ? '……すぐ下に何かいる！' : sense.dist < 0.15 ? `……何かの気配が強い${where}` : `……かすかに何かの気配${where}`}`;
             if (strong) cls = 'chiri';
           }
           if (line) lines.push(line);
@@ -393,9 +394,20 @@ const tutorialSteps = () => {
     `<b>計量機</b>（赤い看板）の受け皿を狙って <b>${k.rel}</b> ではなす`,
     `${PACK_SIZE}匹（${(PACK_SIZE * GRAM_PER_FISH).toFixed(1)}g）たまったら、計量機を狙って <b>${k.act}</b> で包装・出荷`,
     `<b>購入端末</b>で <b>${k.act}</b>。手袋を買って、一度に運べる量を増やそう`,
-    `山には<b>ちりモン</b>が埋まっている。矢印の斜面で、同じ場所を<b>深く</b>掘ろう（つまんで ${k.rel} で足元に捨てる）。照準の下に「<b>気配</b>」が出たら、その方向を掘り進める。姿を現したらつまんで<b>保護ケース</b>へ`,
+    `山には<b>ちりモン</b>が埋まっている。矢印の斜面で、同じ場所を<b>深く</b>掘ろう（つまんで ${k.rel} で足元に捨てる）。同じ場所は 2〜3cm 掘っても何もなければ隣へ。照準の下に「<b>気配</b>」が出たら、示す方向を掘り進める。姿を現したらつまんで<b>保護ケース</b>へ`,
   ];
 };
+
+/** 気配の方向を、いま向いている向きを基準に言葉で表す */
+function senseDir(sense) {
+  if (sense.dist < 0.05) return '（このあたり）';
+  const yaw = player.yaw;
+  // カメラの前方 (-sin, -cos)、右 (cos, -sin)
+  const fwd = -Math.sin(yaw) * sense.dx - Math.cos(yaw) * sense.dz;
+  const right = Math.cos(yaw) * sense.dx - Math.sin(yaw) * sense.dz;
+  if (Math.abs(right) >= Math.abs(fwd)) return right > 0 ? '（右の方）' : '（左の方）';
+  return fwd > 0 ? '（奥の方）' : '（手前の方）';
+}
 
 function refreshObjective() {
   const steps = tutorialSteps();

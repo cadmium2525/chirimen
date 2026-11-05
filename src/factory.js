@@ -336,7 +336,7 @@ export class Factory {
       // マスより少し内側を当たり判定にする（設備の間の1マスの通路を、人が実際に通れるように）
       for (const [a, b] of this.cells(m)) {
         const c = this.cellBox(a, b);
-        out.push({ minX: c.minX + 0.06, maxX: c.maxX - 0.06, minZ: c.minZ + 0.06, maxZ: c.maxZ - 0.06 });
+        out.push({ minX: c.minX + 0.1, maxX: c.maxX - 0.1, minZ: c.minZ + 0.1, maxZ: c.maxZ - 0.1 });
       }
     }
     return out;
@@ -535,8 +535,14 @@ export class Factory {
       fuel += genLoad * MACHINES.generator.fuelCost * dt;
     }
     if (fuel > 0) {
-      game.money = Math.max(0, game.money - fuel);
-      game.stats.fuel = (game.stats.fuel || 0) + fuel;
+      // 燃料費は 1円 たまるごとに払う（所持金を整数のまま保つ）
+      this.fuelDebt = (this.fuelDebt || 0) + fuel;
+      const pay = Math.floor(this.fuelDebt);
+      if (pay > 0) {
+        this.fuelDebt -= pay;
+        game.money = Math.max(0, game.money - pay);
+        game.stats.fuel = (game.stats.fuel || 0) + pay;
+      }
       if (game.money <= 0 && !this.noFuelWarned) { this.noFuelWarned = true; game.emit('toast', { text: '燃料費が払えず、発電機が止まった' }); }
       if (game.money > 50) this.noFuelWarned = false;
     }
@@ -657,8 +663,10 @@ export class Factory {
 
   _craneTarget(x, z, reach) {
     const pile = this.game.pile;
-    let best = null, bh = 0.02;
+    // 残っている個体があれば低い柱もつかむ（山を最後まで片付けられるように）
+    let best = null, bh = -Infinity;
     for (const c of pile.colsInRadius(x, z, reach)) {
+      if (pile.top[c] >= pile.count(c)) continue;
       const h = pile.topH[c];
       if (h > bh) { bh = h; best = c; }
     }

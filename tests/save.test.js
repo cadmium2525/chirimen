@@ -105,3 +105,17 @@ test('どのスロットも検証に通らないときは修復して読み込�
   assert.equal(g.hand.length, 0);
   assert.equal(g.shipped, lost - 3);
 });
+
+test('保存データはその瞬間の複製：保存の後でつまんでも保存データは変わらない', async () => {
+  const { makeWorld } = await import('../src/save.js');
+  const { PileModel } = await import('../src/pile.js');
+  const { Game } = await import('../src/game.js');
+  const pile = new PileModel(77); const game = new Game(pile);
+  game.pickFromPile({ x: -3.6, y: pile.heightAt(-3.6, 0), z: 0 }, 0.08);
+  const w = makeWorld({ pile, game, player: { x: 0, z: 0, yaw: 0, pitch: 0 } });
+  const before = w.game.hand.length;
+  game.pickFromPile({ x: -3.6, y: pile.heightAt(-3.6, 0.3), z: 0.3 }, 0.08);
+  game.hand.push(123);
+  assert.equal(w.game.hand.length, before);
+  assert.notEqual(w.game.hand, game.hand);
+});

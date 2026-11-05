@@ -4,7 +4,7 @@
 //   手（hand） / 床（floor） / 計量機（scale） / 搬送設備（factory） / 出荷済み（shipped） / 保護ケース（protected・ちりモンのみ）
 // invariant() でこの保存則を検査できる。
 
-import { PACK_SIZE, PACK_PRICE, UPGRADES } from './config.js';
+import { PACK_SIZE, PACK_PRICE, UPGRADES, CARRY } from './config.js';
 import { SPECIES } from './chirimonData.js';
 import { Factory } from './factory.js';
 
@@ -60,7 +60,14 @@ export class Game {
   capacity() { return this.tool === 'scoop' ? Math.max(this.scoopCap(), this.holdCap()) : this.handCap(); }
   /** 1回でつかめる／すくえる数 */
   perAction() { return this.tool === 'scoop' ? this.scoopCap() : this.handCap(); }
-  speedMul() { return this.has('boots') ? 1.35 : 1; }
+  /** 持っている量による足の速さ（1 = ふつう） */
+  carryMul(n = this.hand.length) {
+    if (n <= CARRY.light) return 1;
+    const t = Math.min(1, (n - CARRY.light) / (CARRY.heavy - CARRY.light));
+    return 1 - (1 - CARRY.min) * t;
+  }
+
+  speedMul() { return (this.has('boots') ? 1.35 : 1) * this.carryMul(); }
 
   setTool(tool) {
     if (tool === this.tool) return true;

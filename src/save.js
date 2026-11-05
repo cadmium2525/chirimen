@@ -77,11 +77,13 @@ export async function loadWorld() {
 }
 
 export function makeWorld({ pile, game, player }) {
+  // その瞬間の状態を同期的に複製する。書き込みは非同期なので、参照のままだと
+  // 保存の途中に「つまむ／はなす」が混ざり、個体数の合わないセーブになる
   return {
     version: SAVE_VERSION,
     savedAt: Date.now(),
     pile: pile.serialize(),
-    game: game.toJSON(),
+    game: structuredClone(game.toJSON()),
     player: { x: player.x, z: player.z, yaw: player.yaw, pitch: player.pitch },
   };
 }

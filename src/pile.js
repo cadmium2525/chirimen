@@ -398,7 +398,7 @@ export class PileModel {
    * 「気配」：(x,z) の近くで、まだ埋まっているちりモンのうち、いまの表面から maxDepth 以内のもの。
    * 最も近いものの {dist, depth} を返す（なければ null）。掘る場所の手がかりに使う
    */
-  chiriSense(x, z, maxR = 0.3, maxDepth = 0.015) {
+  chiriSense(x, z, maxR = 0.3, maxDepth = 0.022) {
     if (!this._chiriPos) {
       this._chiriPos = this.chiriList.map(({ id }) => { const t = this.fishTransform(id, {}); return { id, c: this.columnOf(id), x: t.x, y: t.y, z: t.z }; });
     }
@@ -408,15 +408,20 @@ export class PileModel {
       if (dist > maxR || this.isRemoved(p.id)) continue;
       const depth = this.topH[p.c] - p.y;
       if (depth <= EXPOSE_DEPTH || depth > maxDepth) continue;
-      if (!best || dist < best.dist) best = { dist, depth };
+      if (!best || dist < best.dist) best = { dist, depth, dx: p.x - x, dz: p.z - z };
     }
     return best;
   }
 
   /** 列のはじめからどれだけ掘ったか（m） */
   dugAt(x, z) {
-    const c = this.colAt(x, z);
-    return c < 0 ? 0 : Math.max(0, this.h0[c] - this.topH[c]);
+    // 柱の境目を狙っても分かるように、まわり（±5cm）の柱のうち一番深く掘った値
+    let best = 0;
+    for (const ox of [-0.05, 0, 0.05]) for (const oz of [-0.05, 0, 0.05]) {
+      const c = this.colAt(x + ox, z + oz);
+      if (c >= 0) best = Math.max(best, this.h0[c] - this.topH[c]);
+    }
+    return best;
   }
 
   isChirimon(id) { return this.chiri.has(id); }

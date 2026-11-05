@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { PileModel } from '../src/pile.js';
 import { Game } from '../src/game.js';
-import { MACHINES, PACK_SIZE, PACK_PRICE, LAYOUT } from '../src/config.js';
+import { MACHINES, PACK_SIZE, PACK_PRICE, LAYOUT, UPGRADES, CARRY } from '../src/config.js';
 import { hash01 } from '../src/rng.js';
 
 const SEED = 4242;
@@ -253,11 +253,15 @@ test('運搬箱：スコップで何度もすくってためられる', () => {
   const { pile, g } = newGame();
   for (const u of ['glove1', 'glove2', 'scoop', 'box']) g.upgrades.add(u);
   g.tool = 'scoop';
-  assert.equal(g.perAction(), 200);
-  assert.equal(g.capacity(), 1000);
-  for (let k = 0; k < 6; k++) g.pickFromPile({ x: -3.6, y: pile.heightAt(-3.6, k * 0.4 - 1), z: k * 0.4 - 1 }, 0.08);
-  assert.equal(g.hand.length, 1000);
+  assert.equal(g.perAction(), 100);
+  assert.equal(g.capacity(), 300);
+  for (let k = 0; k < 4; k++) g.pickFromPile({ x: -3.6, y: pile.heightAt(-3.6, k * 0.4 - 1), z: k * 0.4 - 1 }, 0.08);
+  assert.equal(g.hand.length, 300);
   assert.ok(g.invariant().ok);
+  // たくさん持つと足が遅くなる（50匹までは普通）
+  assert.ok(g.carryMul() < 0.9 && g.carryMul() > CARRY.min);
+  assert.equal(g.carryMul(50), 1);
+  assert.ok(Math.abs(g.carryMul(800) - CARRY.min) < 1e-9);
 });
 
 test('コンベアは計量機の東西南北どの面からでも納品できる', () => {
@@ -311,4 +315,30 @@ test('設備の間に1マス空けた通路は、人が実際に通り抜けら�
   let blocked = false;
   for (let z = f.cz(j) + 1; z > f.cz(j) - 1; z -= 0.05) if (!p._free(f.cx(i + 1), z, g.pile, obs)) blocked = true;
   assert.ok(!blocked, '1マスの隙間を通れない');
+});
+
+test('経済：クレーン1台のラインは手作業の上限より稼ぎ、燃料費は売上の1割前後、所持金は整数のまま', () => {
+  const { pile, g, f } = makeLine();
+  const m0 = g.money, T = 300;
+  run(f, T);
+  const gross = (g.packs * PACK_PRICE) / T, fuel = g.stats.fuel / T, net = (g.money - m0) / T;
+  assert.ok(net >= 65, `ライン純益 ${net.toFixed(1)}円/秒`);
+  assert.ok(fuel / gross > 0.05 && fuel / gross < 0.15, `燃料比 ${(fuel / gross).toFixed(3)}`);
+  assert.ok(Number.isInteger(g.money), `money ${g.money}`);
+  assert.ok(g.invariant().ok);
+  // 手作業の上限（台車＋大スコップで1往復 最短約6秒）はライン1本より小さい
+  const cart = UPGRADES.find((u) => u.id === 'cart'), big = UPGRADES.find((u) => u.id === 'bigscoop');
+  const v = 3.2 * 1.35, d = 6.5;
+  const trip = d / v + d / (v * g.carryMul(cart.holdCap)) + Math.ceil(cart.holdCap / big.scoopCap) * 0.22 + 1.0;
+  assert.ok(cart.holdCap / trip < net, `手作業上限 ${(cart.holdCap / trip).toFixed(1)}円/秒`);
+  void pile;
+});
+
+test('経済：クレーンは低い柱も最後までつかむ。「次の道具」は運搬箱→台車→大スコップの順', () => {
+  const { pile, f } = newGame();
+  const x = pile.cx + pile.radius - 0.2;
+  const t = f._craneTarget(x, 0, 0.06);
+  assert.ok(t && t.h < 0.02, '高さ2cm未満の柱も対象になる');
+  const order = UPGRADES.map((u) => u.id);
+  assert.ok(order.indexOf('scoop') < order.indexOf('box') && order.indexOf('box') < order.indexOf('cart') && order.indexOf('cart') < order.indexOf('bigscoop'));
 });

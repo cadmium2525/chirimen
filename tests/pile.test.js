@@ -164,7 +164,7 @@ test('気配：浅く埋まったちりモンの近くでだけ反応し、照�
   const t = pile.fishTransform(id, {});
   const c = pile.columnOf(id);
   // 表面から 3cm 以内になるまで掘る
-  assert.ok(pile.chiriSense(t.x, t.z) == null || pile.topH[c] - t.y <= 0.015, '深いうちは気配がない');
+  assert.ok(pile.chiriSense(t.x, t.z) == null || pile.topH[c] - t.y <= 0.022, '深いうちは気配がない');
   while (pile.topH[c] - t.y > 0.012) { pile.remove(pile.start[c] + pile.top[c]); g.shipped++; }
   if (!pile.isExposed(id)) {
     const s = pile.chiriSense(t.x + 0.05, t.z);

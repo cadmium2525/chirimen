@@ -34,7 +34,8 @@ export class UI {
     this.el.money.textContent = `${fmt(game.money)}円`;
     const cap = game.capacity();
     const chiri = game.heldChirimon().length;
-    this.el.hand.textContent = `${game.tool === 'scoop' ? 'スコップ' : '手'} ${game.hand.length} / ${cap}匹` + (chiri ? `（ちりモン ${chiri}）` : '');
+    this.el.hand.textContent = `${game.tool === 'scoop' ? 'スコップ' : '手'} ${game.hand.length} / ${cap}匹` + (chiri ? `（ちりモン ${chiri}）` : '')
+      + (game.carryMul() < 0.999 ? `　重い：足 -${Math.round((1 - game.carryMul()) * 100)}%` : '');
     this.el.hand.classList.toggle('warn', chiri > 0);
     const hasScoop = game.scoopCap() > 0;
     this.el.tool.hidden = !hasScoop;
