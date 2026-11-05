@@ -82,7 +82,7 @@ export class BuildScreen {
     this.root.querySelector('#bHint').textContent = def
       ? `${def.name}：${def.desc}`
       : this.tool === 'pan' ? 'ドラッグで見る場所を動かす（2本指でピンチ拡大、PCはホイール）。設備を選ぶとマスをタップ／クリックで設置（コンベアはドラッグで連続設置）。'
-        : this.tool === 'remove' ? 'タップした設備を撤去（代金の半分が戻る。中身は床に落ちる）。'
+        : this.tool === 'remove' ? 'タップした設備を撤去（代金の半分が戻る。クレーンは全額。中身は床に落ちる）。'
           : this.tool === 'prio' ? '電力が足りないとき、優先度の高い設備から電気が回る。タップで 高→中→低 と切り替え。'
             : 'タップした設備の向きを変える。';
   }

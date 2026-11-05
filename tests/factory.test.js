@@ -81,6 +81,7 @@ test('P4：電力不足では優先度の低い設備から減速・停止し、
     const r = f.place(type, i + k, j, 0);
     assert.ok(r.ok, `${type}: ${r.reason}`);
   }
+  f.demandOf = (m) => MACHINES[m.type].power; // 配分の確認なので、空の設備の待機電力は使わない
   f.tick(0.1);
   const by = (t) => [...f.machines.values()].filter((m) => m.type === t);
   const [hopper] = by('hopper'), [sorter] = by('sorter'), [packer] = by('packer');
@@ -390,4 +391,20 @@ test('工場の改良はクレーンを置くと買え、ラインの能力が�
   run(up.f, 120);
   assert.ok(up.g.packs > base.g.packs * 1.6, `${up.g.packs} vs ${base.g.packs}`);
   assert.ok(up.g.invariant().ok);
+});
+
+test('空の設備は待機電力。間隔の端数は持ち越され、高速包装機は毎秒約220匹', () => {
+  const { pile, g, f } = newGame();
+  const [i, j] = f.cellOf(LAYOUT.scale.x - 3.2, -6.5);
+  assert.ok(f.place('packer', i, j, 0).ok);
+  const packer = [...f.machines.values()][0];
+  f.tick(0.1);
+  assert.ok(Math.abs(f.demandOf(packer) - MACHINES.packer.power * 0.2) < 1e-9);
+  g.upgrades.add('fastpacker');
+  const ids = pile.scrape(pile.cx + 2, 0, 0.5, 5000);
+  packer.buffer.push(...ids);
+  const p0 = g.packs;
+  run(f, 10);
+  const perSec = (g.packs - p0) * PACK_SIZE / 10;
+  assert.ok(perSec > 205 && perSec < 230, `${perSec}匹/秒`);
 });

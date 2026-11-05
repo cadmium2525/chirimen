@@ -269,7 +269,7 @@ export class Factory {
     this.machines.delete(m.id);
   }
 
-  /** 撤去。中身は床に落とし、代金の半分が戻る */
+  /** 撤去。中身は床に落とし、代金の半分（クレーンは全額）が戻る */
   remove(i, j) {
     const m = this.get(i, j);
     if (!m) return false;
@@ -321,7 +321,13 @@ export class Factory {
   packInterval() { return this.game.upgradeValue('packInterval', BELT.packInterval); }
 
   /** 消費電力（届く範囲にしらすがないクレーンは待機電力だけ） */
-  demandOf(m) { return m.type === 'crane' && m.starved ? CRANE_STANDBY_KW : MACHINES[m.type].power; }
+  demandOf(m) {
+    const p = MACHINES[m.type].power;
+    if (m.type === 'crane') return m.starved ? CRANE_STANDBY_KW : p;
+    // 空で何も運んでいない設備は待機電力（1/5）だけ
+    const idle = m.type === 'conveyor' ? !m.batches.length : !m.buffer.length;
+    return idle ? p * 0.2 : p;
+  }
 
   /** クレーンをここに置いたとき、届く範囲に残っている匹数 */
   reachCount(i, j) {
@@ -631,7 +637,7 @@ export class Factory {
   _hopper(m, dt) {
     m.timer -= dt;
     if (m.timer > 0 || !m.buffer.length) return;
-    m.timer = BELT.hopperInterval;
+    m.timer = Math.max(m.timer, -dt) + BELT.hopperInterval; // 端数は次へ持ち越す（刻み幅で遅くならない）
     const batch = m.buffer.slice(0, BELT.hopperBatch);
     const [ni, nj] = this.front(m);
     if (this.deliver(ni, nj, batch, m.dir)) m.buffer.splice(0, batch.length);
@@ -642,7 +648,7 @@ export class Factory {
     if (m.timer > 0 || m.buffer.length < PACK_SIZE) return;
     const [fi, fj] = this.front(m);
     if (this.get(fi, fj) || this._staticAt(fi, fj)) return; // 出荷口がふさがれている
-    m.timer = this.packInterval();
+    m.timer = Math.max(m.timer, -dt) + this.packInterval();
     this.game.shipPack(m.buffer.splice(0, PACK_SIZE), 'packer');
     m.packs++;
   }
@@ -653,7 +659,7 @@ export class Factory {
     m.timer -= dt;
     if (m.timer > 0 || !m.buffer.length) return;
     if (m.bin.length >= def.bin) return; // 回収箱がいっぱいなら止まる
-    m.timer = def.interval;
+    m.timer = Math.max(m.timer, -dt) + def.interval;
     const pile = this.game.pile;
     const batch = m.buffer.splice(0, BELT.hopperBatch);
     const pass = [];

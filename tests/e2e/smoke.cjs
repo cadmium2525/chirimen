@@ -93,8 +93,10 @@ async function flow(browser, label, ctxOpts, touch) {
   await page.waitForTimeout(300);
   if (touch) await tapF('#btnRelease'); else await act('release');
   await page.waitForTimeout(400);
+  ok(`${label}: 保護ケースで図鑑に登録される`, (await st()).prot === 1 && (await st()).inv);
+  // 掘った穴のまわりの崩れが落ち着くのを待ってから比べる
+  await page.waitForFunction(() => window.__game.pile.settleQ.size === 0, null, { timeout: 30000 });
   const s2 = await st();
-  ok(`${label}: 保護ケースで図鑑に登録される`, s2.prot === 1 && s2.inv);
 
   // 保存 → 再読み込み → つづきから
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
