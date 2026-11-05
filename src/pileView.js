@@ -63,6 +63,7 @@ export class PileView {
     packTex.colorSpace = THREE.SRGBColorSpace;
     this.packMesh = new THREE.InstancedMesh(packGeo, new THREE.MeshLambertMaterial({ map: packTex }), 96);
     this.packMesh.count = 0;
+    this.packMesh.frustumCulled = false; // 最初は0個で境界球が原点に固定され、棚が見えなくなるのを防ぐ
     this.packMesh.castShadow = true;
     scene.add(this.packMesh);
 
@@ -84,6 +85,7 @@ export class PileView {
       this.group.add(m);
     }
     this.near.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(q.instanceCap * 3), 3);
+    this.mid.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(Math.floor(q.instanceCap * 0.8) * 3).fill(1), 3);
     // 渦巻き順（近い柱から）のオフセット
     this.spiral = null;
   }
@@ -117,8 +119,10 @@ export class PileView {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    // 掘った深さで色を変える（掘り進めた手応えが見えるように）
+    geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(G * G * 3).fill(1), 3));
     geo.setIndex(idx);
-    this.surface = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: this.pileTex, color: '#f2eee6' }));
+    this.surface = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: this.pileTex, color: '#f2eee6', vertexColors: true }));
     this.surface.receiveShadow = true;
     this.surface.castShadow = true;
     this.surface.frustumCulled = false;
@@ -134,15 +138,22 @@ export class PileView {
     const pile = this.pile;
     const pos = this.surface.geometry.attributes.position;
     const arr = pos.array;
+    const colAttr = this.surface.geometry.attributes.color;
+    const col = colAttr.array;
     const cols = all ? null : pile.dirtyCols;
     const setY = (c) => {
       const h = pile.topH[c];
       arr[c * 3 + 1] = h > 0 ? h - 0.004 : -0.02;
+      // 掘った深さ 0〜4cm で、白っぽい表面から湿った琥珀色へ
+      const dug = Math.min(1, Math.max(0, (pile.h0[c] - h) / 0.04));
+      const v = h > 0 ? Math.sqrt(dug) : 0;
+      col[c * 3] = 1 - 0.3 * v; col[c * 3 + 1] = 1 - 0.38 * v; col[c * 3 + 2] = 1 - 0.52 * v;
     };
     if (all) for (let c = 0; c < pile.nCols; c++) setY(c);
     else for (const c of cols) setY(c);
     pile.dirtyCols.clear();
     pos.needsUpdate = true;
+    colAttr.needsUpdate = true;
     this.surface.geometry.computeVertexNormals();
     this.surface.geometry.computeBoundingSphere();
   }
@@ -206,7 +217,7 @@ export class PileView {
     let nN = 0, nM = 0;
     const tf = this.tf, m = this._m, quat = this._q, e = this._e, p = this._p, s = this._s, col = this._c;
     const nearArr = this.near.instanceMatrix.array, midArr = this.mid.instanceMatrix.array;
-    const colArr = this.near.instanceColor.array;
+    const colArr = this.near.instanceColor.array, midCol = this.mid.instanceColor.array;
     for (const [dx, dz, d] of this.spiral) {
       const ix = pix + dx, iz = piz + dz;
       if (ix < 0 || iz < 0 || ix >= G || iz >= G) continue;
@@ -221,6 +232,9 @@ export class PileView {
       const chiriHere = pile.chiriByCol.get(c);
       let shown = 0;
       const topH = pile.topH[c];
+      // 掘った深さで色を濃くする（表面メッシュと同じ色合い）
+      const dug = Math.sqrt(Math.min(1, Math.max(0, (pile.h0[c] - topH) / 0.04)));
+      const dr = 1 - 0.3 * dug, dg = 1 - 0.38 * dug, db = 1 - 0.52 * dug;
       for (let k = pile.top[c]; k < cnt && shown < K; k++) {
         const id = pile.start[c] + k;
         if (pile.isRemoved(id)) continue;
@@ -237,12 +251,13 @@ export class PileView {
         if (isNear) {
           m.toArray(nearArr, nN * 16);
           const v = 0.9 + tf.tint * 0.12;
-          col.setRGB(v, v * 0.985, v * 0.95);
+          col.setRGB(v * dr, v * 0.985 * dg, v * 0.95 * db);
           colArr[nN * 3] = col.r; colArr[nN * 3 + 1] = col.g; colArr[nN * 3 + 2] = col.b;
           nN++;
           if (nN >= capN) break;
         } else {
           m.toArray(midArr, nM * 16);
+          midCol[nM * 3] = dr; midCol[nM * 3 + 1] = dg; midCol[nM * 3 + 2] = db;
           nM++;
           if (nM >= capM) break;
         }
@@ -254,6 +269,7 @@ export class PileView {
     this.near.instanceMatrix.needsUpdate = true;
     this.near.instanceColor.needsUpdate = true;
     this.mid.instanceMatrix.needsUpdate = true;
+    this.mid.instanceColor.needsUpdate = true;
     this.stats = { near: nN, mid: nM };
   }
 

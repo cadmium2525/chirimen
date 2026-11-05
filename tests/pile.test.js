@@ -108,21 +108,24 @@ test('ちりモンを保護ケースへ運ぶと図鑑に登録、計量機か�
   digTo(g, a.id); digTo(g, b.id);
   const at = (id) => { const t = pile.visualTransform(id); return { x: t.x, y: t.y, z: t.z }; };
   // 1匹目：保護
-  assert.equal(g.pickFromPile(at(a.id), 0.05), 1);
+  assert.ok(g.pickFromPile(at(a.id), 0.05) >= 1);
   assert.equal(g.hand[0], a.id);
   assert.equal(g.releaseToCase(), 1);
+  g.releaseToFloor({ x: 0, z: 0 }); // 一緒につまんだしらすは床へ
   assert.equal(g.chiriState.get(a.id), 'protected');
   assert.equal(g.stats.protected, 1);
   // 2匹目：計量機へ → 救出できる
   g.pickFromPile(at(b.id), 0.05);
   assert.equal(g.hand[0], b.id);
   g.releaseToScale();
-  assert.equal(g.pickFromScale(), 1);
-  assert.equal(g.hand[0], b.id);
+  assert.ok(g.pickFromScale() >= 1);
+  assert.equal(g.hand[0], b.id, 'ちりモンが優先して取り出される');
   // もう一度入れて、しらすと一緒に包装 → 誤出荷
   g.releaseToScale();
   g.upgrades.add('glove4');
   while (g.scale.length < PACK_SIZE) { g.pickFromPile({ x: -2.9, y: pile.heightAt(-2.9, -0.5), z: -0.5 }, 0.1); g.releaseToScale(); }
+  assert.equal(g.pack(), 0, 'ちりモン入りは1回目は警告だけ');
+  assert.equal(g.chiriState.get(b.id), 'scale');
   g.pack();
   assert.equal(g.chiriState.get(b.id), 'misshipped');
   assert.equal(g.stats.misshipped, 1);
@@ -151,4 +154,27 @@ test('配置アルゴリズムの版がないセーブは v1 として同じ配�
   const v2 = PileModel.deserialize(new PileModel(SEED, { chiriAlgo: 2 }).serialize());
   assert.equal(v2.chiriAlgo, 2, 'v2 の山は v2 のまま');
   assert.deepEqual(v2.chiriList, new PileModel(SEED, { chiriAlgo: 2 }).chiriList);
+});
+
+test('気配：浅く埋まったちりモンの近くでだけ反応し、照準表示のちりモンは周りのしらすより優先してつまめる', () => {
+  const pile = new PileModel(SEED);
+  const g = new Game(pile);
+  g.upgrades.add('glove2');
+  const { id } = pile.chiriList.find(({ id }) => !pile.isExposed(id));
+  const t = pile.fishTransform(id, {});
+  const c = pile.columnOf(id);
+  // 表面から 3cm 以内になるまで掘る
+  assert.ok(pile.chiriSense(t.x, t.z) == null || pile.topH[c] - t.y <= 0.015, '深いうちは気配がない');
+  while (pile.topH[c] - t.y > 0.012) { pile.remove(pile.start[c] + pile.top[c]); g.shipped++; }
+  if (!pile.isExposed(id)) {
+    const s = pile.chiriSense(t.x + 0.05, t.z);
+    assert.ok(s && s.dist < 0.1, '近くで気配がある');
+  }
+  assert.equal(pile.chiriSense(t.x + 1.5, t.z + 1.5, 0.3, 0.0001), null);
+  digTo(g, id);
+  // 6cm ずれた所を狙っても、表示されたちりモンをつまむ
+  const n = g.pickFromPile({ x: t.x + 0.06, y: pile.heightAt(t.x + 0.06, t.z), z: t.z }, 0.06, id);
+  assert.equal(n, 1);
+  assert.equal(g.hand[0], id);
+  assert.ok(g.invariant().ok);
 });

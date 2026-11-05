@@ -111,6 +111,16 @@ export class BuildScreen {
 
   _bindCanvas() {
     let panning = null, laying = null, pinch = null;
+    // タッチでは指を置いた瞬間には置かず、指を離したとき（またはベルトを引き始めたとき）に確定する。
+    // 2本目の指が触れたらピンチ操作なので取り消す
+    let pending = null;
+    const commit = () => {
+      const p = pending;
+      pending = null;
+      if (!p) return;
+      if (this.tool === 'conveyor') laying = { i: p.i, j: p.j, placed: this._place('conveyor', p.i, p.j, this.dir) };
+      else this._apply(p.i, p.j);
+    };
     const pts = new Map(); // 2本指でピンチ拡大・移動
     const pinchState = () => {
       const [a, b] = [...pts.values()];
@@ -123,15 +133,17 @@ export class BuildScreen {
       if (pts.size === 2) {
         const p0 = pinchState();
         pinch = { ...p0, zoom: this.zoom, vx: this.view.x, vz: this.view.z };
-        panning = null; laying = null;
+        panning = null; laying = null; pending = null;
         return;
       }
+      if (pts.size > 2 || pinch) return;
       if (this.tool === 'pan' || e.button === 1 || e.button === 2) {
         panning = { x: e.clientX, y: e.clientY, vx: this.view.x, vz: this.view.z };
         laying = null;
         return;
       }
       const [i, j] = this._cellFromEvent(e);
+      if (e.pointerType === 'touch') { pending = { i, j, id: e.pointerId }; this.hover = [i, j]; this.draw(); return; }
       if (this.tool === 'conveyor') {
         laying = { i, j, placed: this._place('conveyor', i, j, this.dir) };
       } else {
@@ -157,6 +169,10 @@ export class BuildScreen {
         return;
       }
       const [i, j] = this._cellFromEvent(e);
+      if (pending && pending.id === e.pointerId && (i !== pending.i || j !== pending.j)) {
+        if (this.tool === 'conveyor') commit(); // ベルトを引き始めた
+        else pending = { ...pending, i, j }; // 指をずらしたら、離した場所に置く
+      }
       if (laying && (i !== laying.i || j !== laying.j)) {
         // 隣のマスへ進んだら、前のマスのベルトをそちらへ向けて次を置く
         const di = Math.sign(i - laying.i), dj = Math.sign(j - laying.j);
@@ -171,7 +187,13 @@ export class BuildScreen {
       }
       if (!this.hover || this.hover[0] !== i || this.hover[1] !== j) { this.hover = [i, j]; this.draw(); }
     });
-    const up = (e) => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; panning = null; laying = null; this.draw(); };
+    const up = (e) => {
+      if (e.type === 'pointerup' && pending && pending.id === e.pointerId && !pinch) commit();
+      pending = null;
+      pts.delete(e.pointerId);
+      if (pts.size < 2) pinch = null;
+      panning = null; laying = null; this.draw();
+    };
     this.cv.addEventListener('pointerup', up);
     this.cv.addEventListener('pointercancel', up);
     this.cv.addEventListener('pointerleave', () => { this.hover = null; this.draw(); });

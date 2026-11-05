@@ -13,7 +13,8 @@ export const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 export const DIR_NAMES = ['→', '↓', '←', '↑']; // 上から見た図（+Z が下）
 
 const STEP = 0.05;
-const SCALE_BOX = { minX: LAYOUT.scale.x - 0.45, maxX: LAYOUT.scale.x + 0.45, minZ: LAYOUT.scale.z - 0.45, maxZ: LAYOUT.scale.z + 0.45 };
+// 計量機の本体（world.js の障害物と同じ範囲）。これに重なるマスへ出せば、どの面からでも計量機に入る
+const SCALE_BOX = { minX: LAYOUT.scale.x - 0.4, maxX: LAYOUT.scale.x + 0.4, minZ: LAYOUT.scale.z - 0.4, maxZ: LAYOUT.scale.z + 0.4 };
 const CONSUMERS = new Set(['conveyor', 'hopper', 'packer', 'crane', 'sorter']);
 
 export class Factory {
@@ -332,7 +333,11 @@ export class Factory {
     const out = [];
     for (const m of this.machines.values()) {
       if (!MACHINES[m.type].blocks) continue;
-      for (const [a, b] of this.cells(m)) out.push(this.cellBox(a, b));
+      // マスより少し内側を当たり判定にする（設備の間の1マスの通路を、人が実際に通れるように）
+      for (const [a, b] of this.cells(m)) {
+        const c = this.cellBox(a, b);
+        out.push({ minX: c.minX + 0.06, maxX: c.maxX - 0.06, minZ: c.minZ + 0.06, maxZ: c.maxZ - 0.06 });
+      }
     }
     return out;
   }
@@ -374,8 +379,7 @@ export class Factory {
   deliver(i, j, ids, travel = null) {
     const m = this.get(i, j);
     if (m) return this.accept(m, ids, travel, i, j);
-    const x = this.cx(i), z = this.cz(j);
-    if (x > SCALE_BOX.minX && x < SCALE_BOX.maxX && z > SCALE_BOX.minZ && z < SCALE_BOX.maxZ) {
+    if (this.isScaleCell(i, j)) {
       this.game.factoryToScale(ids);
       return true;
     }
@@ -392,8 +396,13 @@ export class Factory {
       if (t.type === 'packer' || t.type === 'sorter') return t.dir === m.dir && fi === t.i && fj === t.j;
       return false;
     }
-    const x = this.cx(fi), z = this.cz(fj);
-    return x > SCALE_BOX.minX && x < SCALE_BOX.maxX && z > SCALE_BOX.minZ && z < SCALE_BOX.maxZ;
+    return this.isScaleCell(fi, fj);
+  }
+
+  /** マスが計量機の本体に重なっているか */
+  isScaleCell(i, j) {
+    const b = this.cellBox(i, j);
+    return b.minX < SCALE_BOX.maxX && b.maxX > SCALE_BOX.minX && b.minZ < SCALE_BOX.maxZ && b.maxZ > SCALE_BOX.minZ;
   }
 
   /** 設備の問題点（建設画面・照準表示用） */
@@ -505,12 +514,18 @@ export class Factory {
       const panelOut = net.panel ? POWER_PANEL.output : 0;
       const genOut = genAvail.length * MACHINES.generator.output;
       const supply = panelOut + genOut;
-      const list = net.consumers.filter((m) => m.on).sort((a, b) => b.prio - a.prio || a.id - b.id);
+      // 優先度の高い順に配る。足りなくなった優先度の設備は、同じ割合でそろって減速する
+      // （1台だけ止まってラインが詰まることがないように）。それより低い優先度は停止
+      const list = net.consumers.filter((m) => m.on);
       let remain = supply, demand = 0;
-      for (const m of list) {
-        const need = MACHINES[m.type].power;
+      for (const prio of [2, 1, 0]) {
+        const tier = list.filter((m) => (m.prio ?? 1) === prio);
+        if (!tier.length) continue;
+        const need = tier.reduce((a, m) => a + MACHINES[m.type].power, 0);
         demand += need;
-        if (remain >= need - 1e-9) { m.power = 1; remain -= need; } else { m.power = Math.max(0, remain / need); remain = 0; }
+        const ratio = need <= remain + 1e-9 ? 1 : Math.max(0, remain / need);
+        for (const m of tier) m.power = ratio;
+        remain = Math.max(0, remain - need * ratio);
       }
       for (const m of net.consumers) if (!m.on) m.power = 0;
       const load = supply - remain;
@@ -692,9 +707,11 @@ export class Factory {
     const pile = this.game.pile;
     const list = [...(s.machines || [])].sort((x, y) => (MACHINES[x.type].size[1] > 1 || x.type === 'generator' ? 1 : 0) - (MACHINES[y.type].size[1] > 1 || y.type === 'generator' ? 1 : 0));
     for (const d of list) {
-      const m = { buffer: [], holding: [], bin: [], batches: [], timer: 0, phase: 'idle', t: 0, tx: 0, tz: 0, packs: 0, power: 0, ...d };
+      const m = { timer: 0, phase: 'idle', t: 0, tx: 0, tz: 0, packs: 0, power: 0, ...d };
+      // セーブの配列をコピーする（復元中に元データを書き換えないため）
+      m.buffer = [...(d.buffer || [])]; m.holding = [...(d.holding || [])]; m.bin = [...(d.bin || [])];
       if (m.prio == null) m.prio = MACHINES[m.type].prio ?? 1;
-      m.batches = (d.batches || []).map((b) => ({ ids: b.ids, pos: b.pos, chiri: b.ids.filter((id) => pile.isChirimon(id)) }));
+      m.batches = (d.batches || []).map((b) => ({ ids: [...b.ids], pos: b.pos, chiri: b.ids.filter((id) => pile.isChirimon(id)) }));
       if (!m.id) m.id = this.nextId++;
       // 旧版（P3）の包装機は1マスだった。2マス目が埋まっていたら撤去して全額返す
       if (this.cells(m).some(([a, b2]) => this.get(a, b2) || !this.inGrid(a, b2))) {

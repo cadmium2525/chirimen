@@ -64,6 +64,10 @@ let lastSlot = 0;
 export async function loadWorld() {
   const raws = await Promise.all(SLOTS.map((k) => loadKey(k)));
   const r = pickBest(raws);
+  // 検証に通らなかったセーブは、上書きされる前に別の場所へ退避しておく（後から調べたり戻したりできるように）
+  if (r.broken && r.broken.length) {
+    try { await saveKey('broken', { at: Date.now(), problems: r.problems, worlds: r.broken }); } catch (e) { console.warn('backup failed', e); }
+  }
   if (r.world) {
     // 次は、今読んだものではない方のスロットに書く
     const idx = raws.findIndex((x) => x && x.savedAt === r.world.savedAt);
@@ -91,10 +95,11 @@ export async function saveWorld(state) {
 }
 
 export async function deleteAll() {
-  for (const k of [...SLOTS, 'dex']) await deleteKey(k);
+  for (const k of [...SLOTS, 'dex', 'broken']) await deleteKey(k);
 }
 
 export const loadDex = () => loadKey('dex');
+export const loadBroken = () => loadKey('broken');
 export const saveDex = (dex) => saveKey('dex', dex);
 
 // ===== 書き出し・読み込み =====

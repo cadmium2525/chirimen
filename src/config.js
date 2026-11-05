@@ -1,7 +1,8 @@
 // ゲーム全体の定数（数値はすべて仮値。企画書 2.3 / 3.1 参照）
 export const SAVE_VERSION = 2;
-export const GAME_VERSION = '0.6.0';
+export const GAME_VERSION = '0.7.0';
 export const CHANGELOG = [
+  ['0.7.0', 'プレイテストを受けた改善：セーブの保護と自動修復、掘った跡の色と「気配」、ちりモン入り包装の警告、最後の端数パック、計量機へ全方向から搬入、電力不足でラインが止まらない、スマホのピンチ誤設置の修正'],
   ['0.6.0', '公開版の仕上げ：目標の矢印、初めてのちりモンに出会える配置、山の処理完了画面、エラー時の保護、ホーム画面に追加'],
   ['0.5.0', 'スマホ・セーブ：セーブの二重化と復元、書き出し／読み込み、スマホ操作と画質の詳細設定'],
   ['0.4.0', '工場設計：電力（受電盤・発電機・電柱）、選別機、占有マス・通路'],
@@ -35,11 +36,11 @@ export const GRAM_PER_FISH = 0.2;      // 1匹 = 0.2g 換算
 
 // 道具・設備の購入品（P0〜P2 では手袋系＋スコップを先行実装）
 export const UPGRADES = [
-  { id: 'glove1', name: '手袋', desc: '一度につまめる数が 3匹 になる。', price: 15, cap: 3 },
-  { id: 'boots', name: '長靴', desc: '移動速度が 35% 上がる。', price: 80 },
+  { id: 'glove1', name: '手袋', desc: '一度につまめる数が 4匹 になる。', price: 15, cap: 4 },
   { id: 'glove2', name: '軍手', desc: '一度につまめる数が 8匹 になる。', price: 60, cap: 8, requires: 'glove1' },
   { id: 'autopack', name: '自動包装スイッチ', desc: '計量機が規定量に達すると自動で包装・出荷する。', price: 150 },
   { id: 'glove3', name: 'ゴム手袋', desc: '一度につまめる数が 20匹 になる。', price: 250, cap: 20, requires: 'glove2' },
+  { id: 'boots', name: '長靴', desc: '移動速度が 35% 上がる。', price: 80 },
   { id: 'loupe', name: 'ルーペ', desc: '近くで露出しているちりモンがキラリと光るようになる。', price: 600 },
   { id: 'glove4', name: '作業グローブ', desc: '一度につまめる数が 50匹 になる。', price: 1200, cap: 50, requires: 'glove3' },
   { id: 'scoop', name: 'スコップ', desc: '道具「スコップ」を解放。山の表面を 200匹 まとめてすくう（ちりモンも混ざる）。', price: 4000, scoopCap: 200, requires: 'glove2' },
@@ -56,15 +57,15 @@ export const GRID = { cell: 0.5 };
 // power: 消費電力(kW)。prio: 電力不足時の優先度（2=高 1=中 0=低）
 export const MACHINES = {
   conveyor: {
-    name: 'コンベア', price: 40, blocks: false, size: [1, 1], power: 0.1, prio: 1,
+    name: 'コンベア', price: 40, blocks: false, size: [1, 1], power: 0.1, prio: 2,
     desc: '向きの方向へしらすを運ぶ。正面からは受け取らない。ドラッグで連続設置。',
   },
   hopper: {
-    name: 'ホッパー', price: 600, blocks: true, size: [1, 1], power: 0.5, prio: 1, capacity: 2000,
+    name: 'ホッパー', price: 600, blocks: true, size: [1, 1], power: 0.5, prio: 2, capacity: 2000,
     desc: '投入口（上・どの向きからでも入る）。向きの方向のベルトへ少しずつ送り出す。',
   },
   packer: {
-    name: '包装機', price: 2500, blocks: true, size: [1, 2], power: 1.5, prio: 2, capacity: 400,
+    name: '包装機', price: 2500, blocks: true, size: [1, 2], power: 1.5, prio: 1, capacity: 400,
     desc: '1×2マス。後ろの面から受け取り20匹ずつ包装・出荷。正面の出荷口マスは空けておく必要がある。',
   },
   crane: {

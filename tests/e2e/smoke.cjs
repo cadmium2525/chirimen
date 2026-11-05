@@ -41,7 +41,7 @@ async function flow(browser, label, ctxOpts, touch) {
   await page.waitForTimeout(400);
   if (touch) await tapF('#btnPick'); else await act('pick');
   await page.waitForTimeout(300);
-  ok(`${label}: しらすをつまめる`, (await st()).hand === 1);
+  ok(`${label}: しらすをつまめる`, (await st()).hand >= 1);
 
   // 計量機へ運んではなす → 20匹たまるまで繰り返す（手袋は端末で買う）
   for (let k = 0; k < 20; k++) {
@@ -105,6 +105,32 @@ async function flow(browser, label, ctxOpts, touch) {
   await page.waitForTimeout(500);
   const s3 = await st();
   ok(`${label}: 再読み込み後に同じ状態から再開`, s3.fp === s2.fp && s3.prot === 1 && Math.floor(s3.money) === Math.floor(s2.money));
+  if (touch) {
+    // 建設画面：ツールを選んだままピンチしても設備は置かれない。1本指のタップでは置かれる
+    await page.evaluate(() => { window.__game.game.money = 5000; });
+    await tapF('#btnBuild');
+    await page.waitForTimeout(300);
+    await tap('[data-tool="conveyor"]');
+    const count = () => page.evaluate(() => window.__game.game.factory.machines.size);
+    const n0 = await count();
+    const box = await page.locator('#bCanvas').boundingBox();
+    const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+    const cdp = await ctx.newCDPSession(page);
+    const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], id) => ({ x, y, id })) });
+    await touch('touchStart', [[cx - 40, cy]]);
+    await page.waitForTimeout(120);
+    await touch('touchStart', [[cx - 40, cy], [cx + 40, cy]]);
+    for (let k = 1; k <= 5; k++) { await touch('touchMove', [[cx - 40 - k * 10, cy], [cx + 40 + k * 10, cy]]); await page.waitForTimeout(30); }
+    await touch('touchEnd', []);
+    await page.waitForTimeout(200);
+    ok(`${label}: ピンチでは設備が置かれない`, (await count()) === n0, `${n0}→${await count()}`);
+    await touch('touchStart', [[cx, cy]]);
+    await page.waitForTimeout(60);
+    await touch('touchEnd', []);
+    await page.waitForTimeout(200);
+    ok(`${label}: タップで設備が置かれる`, (await count()) === n0 + 1, `${n0}→${await count()}`);
+    await tap('#bClose');
+  }
   ok(`${label}: ページエラーなし`, errors.length === 0, errors.join(' / '));
   await ctx.close();
 }

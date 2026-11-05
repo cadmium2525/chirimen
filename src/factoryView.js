@@ -267,6 +267,23 @@ export class FactoryView {
   _dispose(it) {
     this.group.remove(it.root);
     for (const k of ['boom', 'cable', 'claw', 'ring']) if (it.parts[k]) this.group.remove(it.parts[k]);
+    // 設備ごとに作った形状・材質・文字テクスチャを GPU から解放する（共有の材質は残す）
+    const shared = new Set([steel, dark, yellow, hitMat, heapMat, ...Object.values(LAMP), this.beltRun, this.beltStop]);
+    const seen = new Set();
+    const free = (o) => o.traverse((x) => {
+      if (seen.has(x)) return;
+      seen.add(x);
+      if (x.geometry) x.geometry.dispose();
+      const mats = Array.isArray(x.material) ? x.material : x.material ? [x.material] : [];
+      for (const mt of mats) {
+        if (shared.has(mt)) continue;
+        if (mt.map) mt.map.dispose();
+        mt.dispose();
+      }
+    });
+    free(it.root);
+    for (const k of ['boom', 'cable', 'claw', 'ring']) if (it.parts[k]) free(it.parts[k]);
+    if (it.hit && !seen.has(it.hit)) free(it.hit);
   }
 
   sync(f) {

@@ -394,6 +394,31 @@ export class PileModel {
     return r > 0.62 && r < 0.9 && dx > 0; // 計量機側の斜面
   }
 
+  /**
+   * 「気配」：(x,z) の近くで、まだ埋まっているちりモンのうち、いまの表面から maxDepth 以内のもの。
+   * 最も近いものの {dist, depth} を返す（なければ null）。掘る場所の手がかりに使う
+   */
+  chiriSense(x, z, maxR = 0.3, maxDepth = 0.015) {
+    if (!this._chiriPos) {
+      this._chiriPos = this.chiriList.map(({ id }) => { const t = this.fishTransform(id, {}); return { id, c: this.columnOf(id), x: t.x, y: t.y, z: t.z }; });
+    }
+    let best = null;
+    for (const p of this._chiriPos) {
+      const dist = Math.hypot(p.x - x, p.z - z);
+      if (dist > maxR || this.isRemoved(p.id)) continue;
+      const depth = this.topH[p.c] - p.y;
+      if (depth <= EXPOSE_DEPTH || depth > maxDepth) continue;
+      if (!best || dist < best.dist) best = { dist, depth };
+    }
+    return best;
+  }
+
+  /** 列のはじめからどれだけ掘ったか（m） */
+  dugAt(x, z) {
+    const c = this.colAt(x, z);
+    return c < 0 ? 0 : Math.max(0, this.h0[c] - this.topH[c]);
+  }
+
   isChirimon(id) { return this.chiri.has(id); }
   speciesOf(id) { return this.chiri.get(id); }
 

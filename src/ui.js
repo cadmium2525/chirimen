@@ -55,13 +55,20 @@ export class UI {
     if (this._obj !== html) { this.el.objective.innerHTML = html; this._obj = html; }
   }
 
-  toast(text, type = '') {
-    const d = document.createElement('div');
+  toast(text, type = '', key = null) {
+    // 同じ内容（または同じ key）のトーストが出ていれば、増やさずに表示時間を延ばす
+    const k = key || text;
+    let d = [...this.el.toasts.children].find((x) => x.dataset.key === k);
+    if (d) clearTimeout(d._t);
+    else {
+      d = document.createElement('div');
+      d.dataset.key = k;
+    }
     d.className = `toast ${type}`;
     d.textContent = text;
     this.el.toasts.prepend(d);
     while (this.el.toasts.children.length > 4) this.el.toasts.lastChild.remove();
-    setTimeout(() => d.remove(), 3300);
+    d._t = setTimeout(() => d.remove(), 3300);
   }
 
   setActionLabel(text) {
@@ -241,7 +248,7 @@ export class UI {
         <div class="n">${u.name}</div>
         <button data-buy="${u.id}" ${owned || !game.canBuy(u) ? 'disabled' : ''}>${owned ? '購入済み' : `${fmt(u.price)}円`}</button>
         <div class="d">${u.desc}${req}</div></div>`;
-    }).join('') + `<div class="shop-note">しらす ${PACK_SIZE}匹 = 1パック = ${PACK_PRICE}円（仮値）。コンベア・ホッパー・包装機・クレーンは建設画面（PC: B キー / スマホ: 建設ボタン）で設置します。設備には電力が必要です（受電盤 3kW は無料。足りなければ発電機・電柱を建設）。</div>`;
+    }).join('') + `<div class="shop-note">しらす ${PACK_SIZE}匹 = 1パック = ${PACK_PRICE}円。コンベア・ホッパー・包装機・クレーンは建設画面（PC: B キー / スマホ: 建設ボタン）で設置します。設備には電力が必要です（受電盤 3kW は無料。足りなければ発電機・電柱を建設）。</div>`;
     this.el.shopList.querySelectorAll('[data-buy]').forEach((b) => b.addEventListener('click', () => {
       onBuy(b.dataset.buy);
       this._renderShop(game, onBuy);

@@ -93,16 +93,19 @@ test('短期クリア：山を処理し尽くすと成績（処理時間・出�
     }
   }
   g.releaseToScale();
+  // ちりモンが計量機に入っていると、自動包装は止まり、手での包装は1回目は警告だけ
   g.pack(true);
-  // 端数は手でパックにできないので、計量機に残る
-  assert.equal(g.isCleared(), g.scale.length === 0);
-  const leftover = g.scale.splice(0);
-  g.shipped += leftover.length;
+  if (g.scaleHasChiri()) assert.equal(g.pack(), 0);
+  g.pack();
+  // 山が空になったら、最後の端数（20匹未満）もパックにできる
+  assert.ok(g.scale.length === 0 || g.canPackRemainder());
+  if (g.scale.length) g.pack();
+  assert.equal(g.scale.length, 0);
   assert.ok(g.isCleared());
   const r = g.pileResult();
   assert.equal(r.time, 600);
   assert.equal(r.protected, 1);
   assert.equal(r.misshipped + r.protected <= r.total, true);
-  assert.ok(r.packs > 0 && r.sales === r.packs * 20);
+  assert.ok(r.packs > 0 && r.sales <= r.packs * 20 && r.sales > (r.packs - 1) * 20);
   assert.ok(g.invariant().ok);
 });

@@ -106,18 +106,44 @@ export function validate(world) {
   }
 }
 
-/** 複数スロットの中から、新しい順に「移行して検証に通ったもの」を選ぶ */
+/** 検証に通らない世界を修復してみる（個体の所在を数え直す）。直せなければ null */
+export function repairWorld(world) {
+  try {
+    const pile = PileModel.deserialize(world.pile);
+    const game = new Game(pile, world.game, {});
+    const fixed = game.repair();
+    if (!game.invariant().ok) return null;
+    const w = { ...world, game: game.toJSON() };
+    return validate(w).ok ? { world: w, fixed } : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 複数スロットの中から、新しい順に「移行して検証に通ったもの」を選ぶ。
+ * どれも通らなければ、いちばん新しいものの修復を試みる（repaired に理由）。
+ * 戻り値の broken は検証に通らなかった生データ（上書き前に退避するため）
+ */
 export function pickBest(slots) {
   const list = slots.filter(Boolean).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
   const problems = [];
+  const broken = [];
+  const migrated = [];
   for (const raw of list) {
-    if (isTooNew(raw)) return { tooNew: true, problems };
+    if (isTooNew(raw)) return { tooNew: true, problems, broken };
     const w = migrate(raw);
     const v = validate(w);
-    if (v.ok) return { world: w, problems, fromBackup: raw !== list[0] };
+    if (v.ok) return { world: w, problems, broken, fromBackup: raw !== list[0] };
     problems.push(v.reason);
+    broken.push(raw);
+    if (w) migrated.push(w);
   }
-  return { world: null, problems };
+  for (const w of migrated) {
+    const r = repairWorld(w);
+    if (r) return { world: r.world, problems, broken, repaired: problems[0] || '不明' };
+  }
+  return { world: null, problems, broken };
 }
 
 // ===== 書き出し・読み込み =====

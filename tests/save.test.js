@@ -67,3 +67,41 @@ test('書き出し → 読み込みで同じ世界が復元される（JSON 経�
   assert.equal(back.world.game.money, 1234);
   assert.throws(() => fromExport({ app: 'other' }), /セーブファイルではありません/);
 });
+
+test('旧版セーブの移行（包装機の撤去で中身を床へ）を検証しても、元データは書き換わらず重複しない', () => {
+  const pile = new PileModel(77);
+  const g = new Game(pile);
+  const f = g.factory;
+  const [i, j] = f.cellOf(3, 4);
+  const inside = pile.scrape(-3.5, 0.2, 0.2, 15);
+  const old = { nextId: 3, machines: [
+    { id: 1, type: 'packer', i, j, dir: 0, on: true, buffer: inside },
+    { id: 2, type: 'conveyor', i: i + 1, j, dir: 0, on: true, batches: [] },
+  ] };
+  const w = { version: 1, savedAt: 10, pile: pile.serialize(), game: JSON.parse(JSON.stringify({ ...g.toJSON(), factory: old })), player: { x: 1, z: 2, yaw: 0, pitch: 0 } };
+  delete w.pile.chiriAlgo;
+  const before = JSON.stringify(w.game);
+  const r = pickBest([w]);
+  assert.ok(r.world && !r.repaired, String(r.problems));
+  assert.equal(JSON.stringify(w.game), before, '検証で元データが変わらない');
+  // 本番の読み込み（検証のあとにもう一度復元する）でも重複しない
+  const g2 = new Game(PileModel.deserialize(r.world.pile), r.world.game, {});
+  assert.equal(g2.floor.length, inside.length);
+  assert.ok(g2.invariant().ok, JSON.stringify(g2.invariant()));
+});
+
+test('どのスロットも検証に通らないときは修復して読み込み、壊れたデータを返す（退避用）', () => {
+  const w = makeWorld(77, 2000);
+  const lost = w.game.scale.length;
+  w.game.scale = w.game.scale.slice(0, 3); // 個体が消えた
+  w.game.hand = [w.game.scale[0]];         // 重複
+  const r = pickBest([w]);
+  assert.ok(r.world, String(r.problems));
+  assert.ok(r.repaired);
+  assert.equal(r.broken.length, 1);
+  const g = new Game(PileModel.deserialize(r.world.pile), r.world.game, {});
+  assert.ok(g.invariant().ok);
+  assert.equal(g.scale.length, 3);
+  assert.equal(g.hand.length, 0);
+  assert.equal(g.shipped, lost - 3);
+});

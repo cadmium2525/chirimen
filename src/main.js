@@ -202,6 +202,11 @@ function guideTarget() {
       if (d < bd) { bd = d; best = m; }
     }
     if (best) return { x: best.position.x, y: best.position.y + 0.12, z: best.position.z, label: '何かいる…！', small: true };
+    // まだ露出していなければ、初めての出会いが埋まっている「計量機側の斜面」を示す
+    if (game.tutorial === 4) {
+      const x = pile.cx + pile.radius * 0.72;
+      return { x, y: pile.heightAt(x, 0) + 0.05, z: 0, label: 'このあたりを掘る' };
+    }
   }
   const t = game.tutorial;
   if (t === 0) return pileSpot;
@@ -256,11 +261,26 @@ function updatePrompt() {
         if (cid != null) {
           const sp = SPECIES[pile.speciesOf(cid)];
           const known = game.dex[sp.id]?.protected;
-          lines.push(`${k.pick}: つまむ（${known ? sp.name : '何かいる…！'}）`);
+          const full = game.hand.length >= game.capacity();
+          lines.push(full ? `${known ? sp.name : '何かいる…！'}  手がいっぱい：先に ${k.rel} で はなそう` : `${k.pick}: つまむ（${known ? sp.name : '何かいる…！'}）`);
           cls = 'chiri';
+        } else if (game.hand.length >= game.capacity()) {
+          lines.push(`手がいっぱい（${k.rel}: はなす）`);
         } else {
           lines.push(`${k.pick}: ${floorNear ? '落ちた個体を' : 'しらすを'}つまむ`);
           cls = 'can';
+        }
+        // 掘った手応えと「気配」（埋まっているちりモンの近さ）
+        if (cid == null) {
+          const sense = pile.chiriSense(t.point.x, t.point.z);
+          const dug = pile.dugAt(t.point.x, t.point.z);
+          let line = dug >= 0.002 ? `ここは ${(dug * 100).toFixed(1)}cm 掘った` : '';
+          if (sense) {
+            const strong = sense.dist < 0.1 && sense.depth < 0.007;
+            line += `${line ? '　' : ''}${strong ? '……すぐ下に何かいる！' : sense.dist < 0.15 ? '……何かの気配が強い' : '……かすかに何かの気配'}`;
+            if (strong) cls = 'chiri';
+          }
+          if (line) lines.push(line);
         }
       } else if (floorNear) {
         lines.push(`${k.pick}: 落ちている個体をつまむ`);
@@ -272,7 +292,11 @@ function updatePrompt() {
     cls = 'can';
     if (holding) lines.push(`${k.rel}: 計量機に入れる`);
     else if (game.scale.length) lines.push(`${k.pick}: 受け皿から取り出す${game.scaleHasChiri() ? '（ちりモン優先）' : ''}`);
-    if (game.scale.length >= PACK_SIZE) { lines.push(`${k.act}: 包装する`); act = '包装'; }
+    if (game.scale.length >= PACK_SIZE || game.canPackRemainder()) {
+      if (game.scaleHasChiri()) { lines.push(`⚠ ちりモン入り！ ${k.act}: それでも包装する`); cls = 'chiri'; }
+      else lines.push(`${k.act}: 包装する${game.scale.length < PACK_SIZE ? '（最後の端数）' : ''}`);
+      act = '包装';
+    }
     else lines.push(`計量機 ${game.scale.length} / ${PACK_SIZE}匹`);
   } else if (t.kind === 'case' && t.dist <= INTERACT_DIST) {
     cls = 'can';
@@ -310,8 +334,10 @@ function doPick() {
   const t = target;
   if ((t.kind === 'pile' || t.kind === 'floor') && t.dist <= REACH) {
     let n = 0;
-    if (game.floorItemsNear(t.point)) n = game.pickFromFloor(t.point);
-    if (!n && t.kind === 'pile') n = game.pickFromPile(t.point, assistR());
+    // 照準表示で「何かいる」と出ているちりモンを最優先でつまむ（表示と判定をそろえる）
+    const cid = t.kind === 'pile' ? view.chirimonNear(t.point, assistR() + 0.02) : null;
+    if (cid == null && game.floorItemsNear(t.point)) n = game.pickFromFloor(t.point);
+    if (!n && t.kind === 'pile') n = game.pickFromPile(t.point, assistR(), cid);
     if (!n && game.hand.length < game.capacity()) sfx.deny();
     else if (n) pickAnim = 1;
     return;
@@ -367,7 +393,7 @@ const tutorialSteps = () => {
     `<b>計量機</b>（赤い看板）の受け皿を狙って <b>${k.rel}</b> ではなす`,
     `${PACK_SIZE}匹（${(PACK_SIZE * GRAM_PER_FISH).toFixed(1)}g）たまったら、計量機を狙って <b>${k.act}</b> で包装・出荷`,
     `<b>購入端末</b>で <b>${k.act}</b>。手袋を買って、一度に運べる量を増やそう`,
-    '山を削ると、埋まっていた<b>ちりモン</b>が姿を現す（しばらく掘る必要がある。斜面の<b>あちこち</b>を削ってみよう）。見つけたらつまんで<b>保護ケース</b>へ',
+    `山には<b>ちりモン</b>が埋まっている。矢印の斜面で、同じ場所を<b>深く</b>掘ろう（つまんで ${k.rel} で足元に捨てる）。照準の下に「<b>気配</b>」が出たら、その方向を掘り進める。姿を現したらつまんで<b>保護ケース</b>へ`,
   ];
 };
 
@@ -427,7 +453,7 @@ function wireGame() {
       case 'sorterCaught': ui.toast('選別機がちりモンを回収した！ 回収箱から取り出して保護ケースへ', 'find'); sfx.find(); buzz([20, 40, 20]); break;
       case 'machineToggle': ui.toast(`${MACHINES[p.machine.type].name}を${p.machine.on ? '動かした' : '止めた'}`); break;
       case 'bought': ui.toast(`「${p.upgrade.name}」を手に入れた！`, 'good'); sfx.buy(); advanceTutorial(3); refreshObjective(); break;
-      case 'toast': ui.toast(p.text); sfx.deny(); break;
+      case 'toast': ui.toast(p.text, p.cls || '', p.key); sfx.deny(); break;
       case 'tool': updateHandVisual(); break;
       case 'scale':
         view.updateScale(game, world);
@@ -841,6 +867,10 @@ async function boot() {
     document.getElementById('startInfo').textContent = '新しい版のゲームで保存されたデータがあります。ページを再読み込みして最新版にしてください（この版では上書きしません）。';
   }
   if (saved && loaded.fromBackup) pendingNotes.push('最新のセーブが読めなかったため、ひとつ前のセーブから復元しました');
+  if (saved && loaded.repaired) pendingNotes.push(`セーブの個体数が合わなかったため、自動で修復しました（${loaded.repaired}）。修復前のデータも保管しています`);
+  if (!saved && loaded.problems?.length && !loaded.tooNew) {
+    document.getElementById('startInfo').textContent = `セーブを読み込めませんでした（${loaded.problems[0]}）。元のデータは別に保管してあります。設定の「書き出し」で保存したファイルがあれば読み込めます。`;
+  }
   const startHelp = document.getElementById('startHelp');
   startHelp.innerHTML = helpHTML(isTouch);
   document.getElementById('version').textContent = `v${GAME_VERSION}`;
