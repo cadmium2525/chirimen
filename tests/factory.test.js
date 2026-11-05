@@ -368,6 +368,7 @@ test('所持金0でラインを完成させても、燃料を後払いして動�
 
 test('届く範囲が空のクレーンは待機電力になり、建設画面に理由が出る', () => {
   const { pile, f } = makeLine();
+  pile.repose = Infinity; // このテストでは崩れを止める（崩れると周りから届く範囲へ補充される）
   const crane = [...f.machines.values()].find((m) => m.type === 'crane');
   for (const c of pile.colsInRadius(f.cx(crane.i), f.cz(crane.j), f.craneReach())) {
     while (pile.top[c] < pile.count(c)) pile.remove(pile.start[c] + pile.top[c]);

@@ -222,8 +222,7 @@ export class PileView {
       const ix = pix + dx, iz = piz + dz;
       if (ix < 0 || iz < 0 || ix >= G || iz >= G) continue;
       const c = iz * G + ix;
-      const cnt = pile.count(c);
-      if (!cnt || pile.top[c] >= cnt) continue;
+      if (!pile.hasAny(c)) continue;
       const isNear = d <= nearR;
       if (isNear && nN >= capN) continue;
       if (!isNear && nM >= capM) break;
@@ -235,13 +234,11 @@ export class PileView {
       // 掘った深さで色を濃くする（表面メッシュと同じ色合い）
       const dug = Math.sqrt(Math.min(1, Math.max(0, (pile.h0[c] - topH) / 0.04)));
       const dr = 1 - 0.3 * dug, dg = 1 - 0.38 * dug, db = 1 - 0.52 * dug;
-      for (let k = pile.top[c]; k < cnt && shown < K; k++) {
-        const id = pile.start[c] + k;
-        if (pile.isRemoved(id)) continue;
-        if (chiriHere && chiriHere.includes(id)) continue;
-        tf.c = c;
+      // 崩れて積もった層 → 元からある個体の順に、表面近くのものを描く
+      pile.forEachExposed(c, (id, _y, _k, j) => {
+        if (chiriHere && chiriHere.includes(id)) return true;
+        tf.c = c; tf.j = j;
         pile.fishTransform(id, tf);
-        if (tf.y < topH - EXPOSE_DEPTH * 1.5) break;
         const vy = pile.heightAt(tf.x, tf.z) - (topH - tf.y);
         e.set(tf.roll * 0.3, tf.yaw, tf.tilt * 0.3);
         quat.setFromEuler(e).premultiply(slope);
@@ -254,15 +251,16 @@ export class PileView {
           col.setRGB(v * dr, v * 0.985 * dg, v * 0.95 * db);
           colArr[nN * 3] = col.r; colArr[nN * 3 + 1] = col.g; colArr[nN * 3 + 2] = col.b;
           nN++;
-          if (nN >= capN) break;
+          if (nN >= capN) return false;
         } else {
           m.toArray(midArr, nM * 16);
           midCol[nM * 3] = dr; midCol[nM * 3 + 1] = dg; midCol[nM * 3 + 2] = db;
           nM++;
-          if (nM >= capM) break;
+          if (nM >= capM) return false;
         }
         shown++;
-      }
+        return shown < K;
+      }, K + 8, EXPOSE_DEPTH * 1.5);
     }
     this.near.count = nN;
     this.mid.count = nM;
@@ -296,7 +294,7 @@ export class PileView {
         this.chiriMeshes.set(id, m);
         this.group.add(m);
       }
-      const c = pile.columnOf(id);
+      const c = pile.colOfFish(id);
       const depth = pile.topH[c] - pile.fishTransform(id, {}).y; // 0 .. EXPOSE_DEPTH
       m.position.set(tf.x, tf.y + 0.004 + depth * 0.2, tf.z);
       m.rotation.set(0, tf.yaw, 0);

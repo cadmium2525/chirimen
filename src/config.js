@@ -22,6 +22,7 @@ export const PILE = {
   radius: 3.6,   // 裾野の半径
   height: 2.1,   // 頂上の高さ
   cell: 0.1,     // チャンク（柱）1マスの一辺
+  repose: 0.11,  // 隣の柱との高さの差がこれを超えると崩れる（1マス0.1mあたり。安息角 約48°）
 };
 
 export const FISH_LENGTH = 0.055;      // しらす1匹の見た目の長さ

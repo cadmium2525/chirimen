@@ -130,8 +130,8 @@ export class Game {
     let best = -1, bestD = Infinity;
     const tf = {};
     for (const c of pile.colsInRadius(p.x, p.z, assist)) {
-      pile.forEachExposed(c, (id) => {
-        tf.c = c;
+      pile.forEachExposed(c, (id, _y, _k, j) => {
+        tf.c = c; tf.j = j;
         pile.visualTransform(id, tf);
         let d = Math.hypot(tf.x - p.x, (tf.y - p.y) * 1.5, tf.z - p.z);
         if (pile.isChirimon(id)) d *= 0.5;
@@ -140,10 +140,10 @@ export class Game {
     }
     if (best < 0) return 0;
     const taken = [best];
+    const t = pile.fishTransform(best, {}); // 取り除く前に位置を調べる（崩れて移った個体は移った先）
     pile.remove(best);
     if (room > 1) {
       const r = this.tool === 'scoop' ? 0.06 + 0.01 * Math.sqrt(room) : 0.03 + 0.012 * Math.sqrt(room);
-      const t = pile.fishTransform(best, {});
       taken.push(...pile.scrape(t.x, t.z, r, room - 1));
     }
     this._takeIntoHand(taken);

@@ -327,7 +327,7 @@ export class Factory {
   reachCount(i, j) {
     const pile = this.game.pile;
     let n = 0;
-    for (const c of pile.colsInRadius(this.cx(i), this.cz(j), this.craneReach())) n += pile.count(c) - pile.top[c];
+    for (const c of pile.colsInRadius(this.cx(i), this.cz(j), this.craneReach())) n += pile.remaining(c);
     return n;
   }
 
@@ -595,6 +595,7 @@ export class Factory {
 
   // ===== 時間経過 =====
   tick(dt) {
+    this.game.pile.settle(); // 崩れ（1フレームに動かす数には上限がある）
     this.acc += Math.min(dt, 0.25);
     while (this.acc >= STEP) {
       this.acc -= STEP;
@@ -704,7 +705,7 @@ export class Factory {
     // 残っている個体があれば低い柱もつかむ（山を最後まで片付けられるように）
     let best = null, bh = -Infinity;
     for (const c of pile.colsInRadius(x, z, reach)) {
-      if (pile.top[c] >= pile.count(c)) continue;
+      if (!pile.hasAny(c)) continue;
       const h = pile.topH[c];
       if (h > bh) { bh = h; best = c; }
     }

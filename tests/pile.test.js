@@ -178,3 +178,73 @@ test('気配：浅く埋まったちりモンの近くでだけ反応し、照�
   assert.equal(g.hand[0], id);
   assert.ok(g.invariant().ok);
 });
+
+// ===== 崩れ =====
+const maxNeighborDiff = (p) => {
+  let mx = 0; const G = p.G;
+  for (let c = 0; c < p.nCols; c++) {
+    if (c % G + 1 < G) mx = Math.max(mx, Math.abs(p.topH[c] - p.topH[c + 1]));
+    if (c + G < p.nCols) mx = Math.max(mx, Math.abs(p.topH[c] - p.topH[c + G]));
+  }
+  return mx;
+};
+
+test('崩れ：手つかずの山と浅い掘りでは崩れない。深い穴は周りが崩れて埋まり、個体数は変わらない', () => {
+  const p = new PileModel(4242);
+  assert.equal(p.settleQ.size, 0);
+  assert.ok(maxNeighborDiff(p) < p.repose);
+  const c = p.colAt(p.cx + p.radius * 0.72, 0), h = p.topH[c];
+  while (p.topH[c] > h - 0.02) p.remove(p.topId(c));
+  assert.equal(p.settleAll(), 0, '2cm の掘りでは崩れない');
+  while (p.topH[c] > h - 0.2) p.remove(p.topId(c));
+  const inPile = p.total - p.removedCount;
+  assert.ok(p.settleAll() > 0);
+  assert.equal(p.total - p.removedCount, inPile, '崩れても山の個体数は同じ');
+  assert.ok(h - p.topH[c] < 0.12, `穴の深さ ${(h - p.topH[c]).toFixed(3)}`);
+  assert.ok(maxNeighborDiff(p) <= p.repose + p.layer * 2);
+  // 滑った個体はビットが立ったまま、山には残っている
+  const [id] = p.slid.keys();
+  assert.ok(p._bit(id) && !p.isRemoved(id));
+  assert.equal(p.colOfFish(id), p.slid.get(id));
+});
+
+test('崩れ：崖は安息角までならされ、崩れた個体もつまめる。保存→復元で同じ状態', () => {
+  const p = new PileModel(99);
+  const g = new Game(p);
+  for (let c = 0; c < p.nCols; c++) {
+    if (p.colCenterX(c) < p.cx + 0.2 || Math.abs(p.colCenterZ(c)) > 0.5) continue;
+    while (p.hasAny(c)) { p.remove(p.topId(c)); g.shipped++; }
+  }
+  p.settleAll();
+  assert.ok(p.slid.size > 1000);
+  assert.ok(maxNeighborDiff(p) <= p.repose + p.layer * 2);
+  assert.ok(g.invariant().ok);
+  // 崩れて積もった層の一番上をつまむ
+  const c = p.slid.get(p.slid.keys().next().value);
+  const top = p.topId(c);
+  assert.ok(p.slid.has(top) && p.isExposed(top));
+  const t = p.visualTransform(top, {});
+  const n = g.pickFromPile({ x: t.x, y: t.y, z: t.z }, 0.03);
+  assert.ok(n >= 1 && g.invariant().ok);
+  // 保存→復元
+  const q = PileModel.deserialize(JSON.parse(JSON.stringify({ ...p.serialize(), removed: [...new Uint32Array(p.serialize().removed)] }), (k, v) => (k === 'removed' ? new Uint32Array(v).buffer : v)));
+  assert.equal(q.fingerprint(), p.fingerprint());
+  assert.equal(q.removedCount, p.removedCount);
+  assert.equal(q.slid.size, p.slid.size);
+  const id = [...p.slid.keys()][5];
+  assert.deepEqual(q.fishTransform(id, {}), p.fishTransform(id, {}));
+});
+
+test('崩れ：途中で保存した山は、読み込むと続きから崩れる。ちりモンも一緒に滑る', () => {
+  const p = new PileModel(7);
+  for (let c = 0; c < p.nCols; c++) {
+    if (p.colCenterX(c) < p.cx) continue;
+    while (p.hasAny(c)) p.remove(p.topId(c));
+  }
+  p.settle(5000);
+  const q = PileModel.deserialize(p.serialize());
+  assert.ok(q.settleQ.size > 0, '不安定な柱が再び調べられる');
+  q.settleAll();
+  assert.ok(maxNeighborDiff(q) <= q.repose + q.layer * 2);
+  for (const [id, c] of q.slid) if (q.isChirimon(id)) assert.ok(q.chiriByCol.get(c).includes(id));
+});
