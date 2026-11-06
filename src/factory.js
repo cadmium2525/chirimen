@@ -454,11 +454,26 @@ export class Factory {
    * extra に工場の改良を渡すと「それを買ったら」の値。bottleneck は頭打ちの理由の集計
    */
   estimateRate(extra = null) {
-    // 電力は、流れる量に見合った平均の消費で配る（瞬間の待機で見積もりが揺れないように）
+    // 配置・改良・クレーンの空振りが変わっていなければ、前の結果を使い回す（目標欄やショップで何度も呼ばれる）
+    const cranes = [...this.machines.values()].filter((m) => m.type === 'crane');
+    const key = `${this.version}|${[...this.game.upgrades].join()}|${cranes.map((m) => (m.starved ? 1 : 0)).join('')}`;
+    if (this._estKey !== key) { this._estKey = key; this._estCache = new Map(); }
+    const ck = extra ? extra.id || JSON.stringify(extra) : '';
+    if (this._estCache.has(ck)) return this._estCache.get(ck);
+    // 電力は、流れる量に見合った平均の消費で配る（瞬間の待機で見積もりが揺れないように）。
+    // 行き来しないよう前回との平均をとりながら、落ち着くまでくり返す
     let ratio = this._ratiosFor(null), est;
-    for (let k = 0; k < 6; k++) {
+    for (let k = 0; k < 40; k++) {
       est = this._estimate(extra, ratio);
-      ratio = this._ratiosFor(est.use);
+      const next = this._ratiosFor(est.use);
+      let diff = 0;
+      for (const [m, r] of next) {
+        const old = ratio.get(m) ?? 1, avg = k ? (old + r) / 2 : r;
+        diff = Math.max(diff, Math.abs(avg - old));
+        next.set(m, avg);
+      }
+      ratio = next;
+      if (diff < 1e-4) break;
     }
     est = this._estimate(extra, ratio);
     est.bottleneck.power = 0;
@@ -467,7 +482,9 @@ export class Factory {
       const full = this._estimate(extra, null);
       if (full.rate - est.rate > Math.max(1, full.rate * 0.03)) est.bottleneck.power = Math.max(1, est.lines);
     }
-    est.starved = [...this.machines.values()].some((m) => m.type === 'crane' && m.on && m.starved);
+    est.starved = cranes.some((m) => m.on && m.starved);
+    est.genOff = [...this.machines.values()].some((m) => m.type === 'generator' && !m.on);
+    this._estCache.set(ck, est);
     return est;
   }
 
@@ -485,13 +502,13 @@ export class Factory {
       if (m.type !== 'crane' || m.starved || !run(m)) continue;
       let node = this._next(m), cap = Infinity, why = 'crane';
       const seen = new Set();
-      let dead = false;
+      let dead = false, neckAt = -1;
       while (node && node !== 'scale' && node.type !== 'packer' && !seen.has(node)) {
         seen.add(node);
         const r = run(node);
         if (!r) { dead = true; break; }
         const c = (caps[node.type] ?? Infinity) * r;
-        if (c < cap) { cap = c; why = node.type; }
+        if (c < cap) { cap = c; why = node.type; neckAt = seen.size - 1; }
         node = this._next(node);
       }
       if (dead || !node || seen.has(node)) continue; // 停止・行き止まり・輪
@@ -502,7 +519,7 @@ export class Factory {
       e.supply += craneRate * run(m);
       if (cap < e.cap) { e.cap = cap; e.why = why; }
       sinks.set(key, e);
-      paths.push([m, seen, node, e, craneRate * run(m)]);
+      paths.push([[...seen], node, e, craneRate * run(m), cap < sinkCap ? neckAt : seen.size]);
     }
     let rate = 0;
     const bottleneck = { crane: 0, packer: 0, hopper: 0, sorter: 0 };
@@ -511,17 +528,22 @@ export class Factory {
       rate += e.rate;
       if (e.supply <= e.cap) bottleneck.crane++; else bottleneck[e.why]++;
     }
-    // 設備ごとの稼働率（流れる量 ÷ 全力の能力）
-    const flow = new Map();
-    for (const [, seen, node, e, sup] of paths) {
+    // 設備ごとの稼働率（中身がある時間の割合）：流れる量 ÷ いまの速さ。
+    // 詰まっているラインでは、頭打ちの設備より手前はいつも中身がある
+    const use = new Map(), flow = new Map();
+    const add = (n, v) => use.set(n, Math.min(1, (use.get(n) || 0) + v));
+    for (const [nodes, node, e, sup, neckAt] of paths) {
       const f = e.supply ? e.rate * sup / e.supply : 0;
-      for (const n of seen) flow.set(n, (flow.get(n) || 0) + f);
-      if (node !== 'scale') flow.set(node, (flow.get(node) || 0) + f);
+      const jam = e.supply > e.cap + 1e-9;
+      const all = node === 'scale' ? nodes : [...nodes, node];
+      all.forEach((n, k) => {
+        if (jam && k < neckAt) { add(n, 1); return; }
+        flow.set(n, (flow.get(n) || 0) + f);
+      });
     }
-    const use = new Map();
     for (const [n, f] of flow) {
-      const full = n.type === 'packer' ? packCap : caps[n.type];
-      use.set(n, full ? Math.min(1, f / full) : f > 0 ? 1 : 0);
+      const speed = (n.type === 'packer' ? packCap : caps[n.type] ?? 0) * run(n);
+      add(n, speed > 0 ? f / speed : f > 0 ? 1 : 0);
     }
     return { rate, lines: sinks.size, bottleneck, use };
   }

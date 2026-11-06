@@ -466,6 +466,18 @@ test('見積もりは停止・電源なし・電力不足を反映する', () =>
   assert.ok(Math.abs(real - est) / real < 0.2, `見積もり ${est.toFixed(1)} 実際 ${real.toFixed(1)}`);
 });
 
+test('発電機を止めると見積もりで分かり、動かすと戻る（結果の使い回しも更新される）', () => {
+  const { f } = makeLine();
+  const base = f.estimateRate().rate;
+  assert.equal(f.estimateRate(), f.estimateRate(), '同じ配置なら使い回す');
+  const gen = [...f.machines.values()].find((m) => m.type === 'generator');
+  f.toggle(gen);
+  const e = f.estimateRate();
+  assert.ok(e.genOff && (e.bottleneck.power || !e.lines), JSON.stringify(e));
+  f.toggle(gen);
+  assert.ok(!f.estimateRate().genOff && Math.abs(f.estimateRate().rate - base) < 1e-9);
+});
+
 test('届く範囲が空のクレーンは見積もりで starved と分かる', () => {
   const { f, pile } = makeLine();
   pile.repose = Infinity;

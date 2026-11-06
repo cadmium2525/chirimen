@@ -68,7 +68,9 @@ export class UI {
     d.className = `toast ${type}`;
     d.textContent = text;
     this.el.toasts.prepend(d);
-    while (this.el.toasts.children.length > 4) this.el.toasts.lastChild.remove();
+    // 小さい画面では2件まで（照準や操作ボタンに届かないように）
+    const max = matchMedia('(max-height: 500px), (max-width: 700px)').matches ? 2 : 4;
+    while (this.el.toasts.children.length > max) this.el.toasts.lastChild.remove();
     d._t = setTimeout(() => d.remove(), 3300);
   }
 

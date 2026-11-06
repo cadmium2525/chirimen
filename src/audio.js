@@ -54,7 +54,7 @@ function noise(dur, vol, freq) {
 }
 
 export const sfx = {
-  slide: (v = 0.5) => noise(0.35 + v * 0.4, 0.05 + v * 0.12, 900 - v * 400),
+  slide: (v = 0.5, gain = 1) => noise(0.35 + v * 0.4, (0.05 + v * 0.12) * gain, 900 - v * 400),
   unlock: () => ac(),
   pick: () => tone(880, 0.06, 'triangle', 0.08, 0, 1.4),
   scoop: () => { tone(220, 0.12, 'sawtooth', 0.05, 0, 0.6); tone(330, 0.1, 'triangle', 0.05, 0.03); },

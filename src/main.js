@@ -76,7 +76,7 @@ handHeld.frustumCulled = false;
 let handModel = null, handChiri = new THREE.Group();
 let handKey = '';
 let pickAnim = 0;
-let slideT = 0, slideMineT = 0, objT = 0;
+let slideT = 0, slideMineT = 0, objT = 0, floorT = 0;
 
 function gloveKind() {
   for (const id of ['glove4', 'glove3', 'glove2', 'glove1']) if (game.has(id)) return id;
@@ -396,7 +396,7 @@ const tutorialSteps = () => {
     `<b>計量機</b>（赤い看板）の受け皿を狙って <b>${k.rel}</b> ではなす`,
     `${PACK_SIZE}匹（${(PACK_SIZE * GRAM_PER_FISH).toFixed(1)}g）たまったら、計量機を狙って <b>${k.act}</b> で包装・出荷`,
     `<b>購入端末</b>で <b>${k.act}</b>。手袋を買って、一度に運べる量を増やそう`,
-    `山の<b>ちりモン</b>を探そう。照準の下の「<b>気配</b>」の方へ手で掘る（つまんで ${k.rel} で足元へ）。同じ穴を深く掘らず広げながら。見つけたら<b>保護ケース</b>へ`,
+    `山の<b>ちりモン</b>を探そう。照準の下の「<b>気配</b>」の方へ手で掘る（つまんで ${k.rel} で足元へ）。同じ所ばかり深く掘らず、穴を広げよう。見つけたら<b>保護ケース</b>へ`,
   ];
 };
 
@@ -423,7 +423,7 @@ function collapseFx(dt) {
   if (mine) digSlides += ls.n; else if (!d || game.stats.playTime - d.t >= 3) digSlides = 0;
   if (!game.stats.sawCollapse && mine && digSlides >= 12) {
     game.stats.sawCollapse = true;
-    ui.toast('掘った穴のまわりが崩れた。深く掘るときは、穴を広げながら掘ろう', '', 'collapse');
+    ui.toast('穴のまわりが崩れた。穴は広げながら掘ろう', '', 'collapse');
   }
   if ((ls.n < 30 && !(mine && ls.n >= 5)) || (mine ? slideMineT : slideT) > 0) return;
   const dist = Math.hypot(x - player.x, z - player.z);
@@ -431,7 +431,7 @@ function collapseFx(dt) {
   if (mine) slideMineT = 0.22; else slideT = 4 + Math.random() * 3;
   const v = Math.min(1, Math.log10(ls.n + 1) / 4);
   view.puff(x, y, z, mine ? v : v * 0.6);
-  if (dist < 8) sfx.slide(Math.max(0.25, v) * Math.max(0.3, 1 - dist / 8) * (mine ? 1 : 0.35));
+  if (dist < 8) sfx.slide(Math.max(0.25, v) * Math.max(0.3, 1 - dist / 8), mine ? 1 : 0.35);
 }
 
 const NECK_HINT = {
@@ -448,10 +448,12 @@ function factoryLines() {
   if (![...f.machines.values()].some((m) => m.type === 'crane')) return '';
   if (pile.removedCount >= pile.total) return ''; // 山が片付いたら工場の案内はいらない
   const est = f.estimateRate();
+  // 止めた発電機があれば、まず動かす（電力が足りない・届いていないの原因になる）
+  if (est.genOff && (est.bottleneck.power || !est.lines)) return `<br><span class="small muted">止まっている発電機がある：発電機を狙って ${isTouch ? '［調べる］' : '<b>E</b>'} で動かそう</span>`;
   if (est.bottleneck.power) return `<br><span class="small muted">いまのライン：毎秒 約${Math.round(est.rate)}匹。${NECK_HINT.power}</span>`;
   const fac = game.nextFactoryUpgrade();
   if (fac && fac.gain >= 1) return `<br><span class="small muted">次の改良：${fac.u.name}（${fac.u.price.toLocaleString()}円）：いまのラインで 約+${Math.round(fac.gain)}円/秒</span>`;
-  if (!est.lines && est.starved) return '<br><span class="small muted">クレーンの届く範囲にしらすがない：撤去（全額戻る）して山の別の場所へ移そう</span>';
+  if (!est.lines && est.starved) return '<br><span class="small muted">クレーンの届く範囲にしらすがない：撤去（払った分が戻る）して、山の残っている場所へ移そう</span>';
   if (!est.lines) return '<br><span class="small muted">クレーンのしらすが出荷まで届いていない（建設画面で ⚠ を確認）</span>';
   const b = est.bottleneck;
   const neck = Object.keys(b).sort((x, y) => b[y] - b[x])[0];
@@ -476,7 +478,8 @@ function restLine() {
 function refreshObjective() {
   const steps = tutorialSteps();
   if (game.tutorial < steps.length) {
-    ui.setObjective(`<span class="small muted">目標 ${game.tutorial + 1}/${steps.length}</span><br>${steps[game.tutorial]}` + factoryLines());
+    // とても小さい画面では、チュートリアル中の工場の行は隠す（目標の文を切らないように）
+    ui.setObjective(`<span class="small muted">目標 ${game.tutorial + 1}/${steps.length}</span><br>${steps[game.tutorial]}` + factoryLines().replace(/<br><span class="small muted/g, '<br class="fac-tut"><span class="small muted fac-tut'));
     return;
   }
   const found = SPECIES.filter((sp) => game.dex[sp.id]?.protected).length;
@@ -900,6 +903,8 @@ function frame(now) {
     game.stats.playTime += dt;
     game.factory.tick(dt);
     collapseFx(dt);
+    floorT -= dt;
+    if (floorT <= 0) { floorT = 0.5; view.updateFloor(game); } // 床が多いときの、間引いた高さの更新
     objT += dt;
     if (objT > 1.5) { objT = 0; refreshObjective(); }
     if (hudDirty) {
