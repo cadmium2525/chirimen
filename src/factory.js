@@ -325,7 +325,8 @@ export class Factory {
     const p = MACHINES[m.type].power;
     if (m.type === 'crane') return m.starved ? CRANE_STANDBY_KW : p;
     // 空で何も運んでいない設備は待機電力（1/5）だけ
-    const idle = m.type === 'conveyor' ? !m.batches.length : !m.buffer.length;
+    const idle = m.type === 'conveyor' ? !m.batches.length
+      : m.type === 'packer' ? m.buffer.length < PACK_SIZE : !m.buffer.length; // 包装機は20匹たまるまで待機
     return idle ? p * 0.2 : p;
   }
 

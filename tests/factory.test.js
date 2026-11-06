@@ -393,7 +393,7 @@ test('工場の改良はクレーンを置くと買え、ラインの能力が�
   assert.ok(up.g.invariant().ok);
 });
 
-test('空の設備は待機電力。間隔の端数は持ち越され、高速包装機は毎秒約220匹', () => {
+test('空の設備は待機電力。間隔の端数は持ち越され、高速包装機は毎秒約250匹', () => {
   const { pile, g, f } = newGame();
   const [i, j] = f.cellOf(LAYOUT.scale.x - 3.2, -6.5);
   assert.ok(f.place('packer', i, j, 0).ok);
@@ -406,5 +406,5 @@ test('空の設備は待機電力。間隔の端数は持ち越され、高速�
   const p0 = g.packs;
   run(f, 10);
   const perSec = (g.packs - p0) * PACK_SIZE / 10;
-  assert.ok(perSec > 205 && perSec < 230, `${perSec}匹/秒`);
+  assert.ok(perSec > 235 && perSec < 260, `${perSec}匹/秒`);
 });

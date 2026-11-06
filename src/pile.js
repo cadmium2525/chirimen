@@ -260,7 +260,7 @@ export class PileModel {
    */
   settle(budget = 8000) {
     let moved = 0;
-    const G = this.G, T = this.repose, L = this.layer;
+    const G = this.G, L = this.layer;
     while (this.settleQ.size && moved < budget) {
       const c = this.settleQ.values().next().value;
       this.settleQ.delete(c);
@@ -271,8 +271,9 @@ export class PileModel {
         const n = nz * G + nx;
         let hi = c, lo = n, d = this.topH[c] - this.topH[n];
         if (d < 0) { hi = n; lo = c; d = -d; }
-        if (d <= T + L) continue;
-        const k = Math.min(budget - moved, Math.ceil((d - T) / (2 * L)));
+        const Tp = this.pairRepose(c, n);
+        if (d <= Tp + L) continue;
+        const k = Math.min(budget - moved, Math.ceil((d - Tp) / (2 * L)));
         let m = 0;
         while (m < k && this._slide(hi, lo)) m++;
         moved += m;
@@ -284,11 +285,18 @@ export class PileModel {
     return moved;
   }
 
+  /**
+   * 隣どうしの柱が崩れずにいられる高さの差。ふつうは repose だが、山によっては最初から
+   * それより急な斜面がある（押し固められている）ので、最初の差より 1cm 急になるまでは崩れない
+   */
+  pairRepose(c, n) { return Math.max(this.repose, Math.abs(this.h0[c] - this.h0[n]) + 0.01); }
+
   _queueUnstable() {
-    const G = this.G, lim = this.repose + this.layer;
+    const G = this.G, L = this.layer;
+    const bad = (c, n) => Math.abs(this.topH[c] - this.topH[n]) > this.pairRepose(c, n) + L;
     for (let c = 0; c < this.nCols; c++) {
       const ix = c % G;
-      if ((ix + 1 < G && Math.abs(this.topH[c] - this.topH[c + 1]) > lim) || (c + G < this.nCols && Math.abs(this.topH[c] - this.topH[c + G]) > lim)) this.settleQ.add(c);
+      if ((ix + 1 < G && bad(c, c + 1)) || (c + G < this.nCols && bad(c, c + G))) this.settleQ.add(c);
     }
   }
 

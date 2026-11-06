@@ -248,3 +248,15 @@ test('崩れ：途中で保存した山は、読み込むと続きから崩れ�
   assert.ok(maxNeighborDiff(q) <= q.repose + q.layer * 2);
   for (const [id, c] of q.slid) if (q.isChirimon(id)) assert.ok(q.chiriByCol.get(c).includes(id));
 });
+
+test('崩れ：どの山も、最初の形のままなら崩れない（最初から急な斜面があっても）', () => {
+  for (let seed = 1; seed <= 40; seed++) {
+    const p = new PileModel(seed * 7919);
+    p._queueUnstable();
+    assert.equal(p.settleQ.size, 0, `seed ${seed * 7919}`);
+    // 1匹だけ取った山を読み込み直しても、一斉に崩れない
+    p.remove(p.topId(p.colAt(p.cx + p.radius * 0.72, 0)));
+    const q = PileModel.deserialize(p.serialize());
+    assert.ok(q.settleAll() < 50, `seed ${seed * 7919}`);
+  }
+});
