@@ -369,6 +369,11 @@ export class PileView {
   // ===== 床 =====
   updateFloor(game) {
     const pile = this.pile, tf = {};
+    // 床の個体が変わっていなければ作り直さない（数が多いと重い）。少ないときは山の高さの変化にも合わせる
+    const fl = game.floor;
+    const sig = `${fl.length}:${fl[0]?.id}:${fl[fl.length - 1]?.id}:${fl.length < 3000 ? pile.version : 0}`;
+    if (sig === this._floorSig) return;
+    this._floorSig = sig;
     const m = this._m, e = this._e, quat = this._q, p = this._p, s = this._s;
     let n = 0;
     const keep = new Set();

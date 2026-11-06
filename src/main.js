@@ -76,7 +76,7 @@ handHeld.frustumCulled = false;
 let handModel = null, handChiri = new THREE.Group();
 let handKey = '';
 let pickAnim = 0;
-let slideT = 0;
+let slideT = 0, objT = 0;
 
 function gloveKind() {
   for (const id of ['glove4', 'glove3', 'glove2', 'glove1']) if (game.has(id)) return id;
@@ -319,7 +319,7 @@ function updatePrompt() {
     cls = f.hasChiri(m) ? 'chiri' : 'can';
     const takes = ['conveyor', 'hopper', 'packer', 'sorter'].includes(m.type);
     const dem = def.power != null ? f.demandOf(m) : 0;
-    const pw = def.power != null ? `・${+dem.toFixed(2)}kW${dem < def.power - 1e-9 ? '（待機）' : ''} 優先度${PRIO_NAMES[m.prio]}` : '';
+    const pw = def.power != null ? `・${+dem.toFixed(2)}kW${m.on && dem < def.power - 1e-9 ? '（待機）' : ''} 優先度${PRIO_NAMES[m.prio]}` : '';
     lines.push(`${def.name}（${m.on ? '稼働中' : '停止中'}${pw}）${n ? ` 中身 ${n}匹` : ''}`);
     const iss = f.issues(m).filter((x) => x !== '停止中');
     if (iss.length) lines.push(`⚠ ${iss.join('／')}`);
@@ -396,7 +396,7 @@ const tutorialSteps = () => {
     `<b>計量機</b>（赤い看板）の受け皿を狙って <b>${k.rel}</b> ではなす`,
     `${PACK_SIZE}匹（${(PACK_SIZE * GRAM_PER_FISH).toFixed(1)}g）たまったら、計量機を狙って <b>${k.act}</b> で包装・出荷`,
     `<b>購入端末</b>で <b>${k.act}</b>。手袋を買って、一度に運べる量を増やそう`,
-    `山には<b>ちりモン</b>が埋まっている。矢印の斜面を、手で少しずつ<b>掘り下げよう</b>（つまんで ${k.rel} で足元に捨てる）。2〜3cm 掘っても何もなければ隣へ（深い穴は周りが崩れて埋まる）。照準の下に「<b>気配</b>」が出たら、示す方向を掘り進める。姿を現したらつまんで<b>保護ケース</b>へ`,
+    `山には<b>ちりモン</b>が埋まっている。矢印の斜面を手で少しずつ<b>掘り下げる</b>（つまんで ${k.rel} で足元へ）。照準の下の「<b>気配</b>」が示す方へ掘り進め、姿を現したら<b>保護ケース</b>へ`,
   ];
 };
 
@@ -411,48 +411,74 @@ function senseDir(sense) {
   return fwd > 0 ? '（奥の方）' : '（手前の方）';
 }
 
-/** 山が崩れたときの砂煙・音と、初めてのときの一度だけの案内 */
+/** 山が崩れたときの砂煙・音と、初めてのときの一度だけの案内（自分で掘った直後の崩れだけ） */
+let digSlides = 0;
 function collapseFx(dt) {
   slideT -= dt;
   const ls = pile.lastSlide;
-  if (ls.n < 30 || slideT > 0) return;
-  slideT = 0.22;
+  if (!ls.n) return;
   const x = ls.x / ls.n, z = ls.z / ls.n, y = ls.y / ls.n;
-  const dist = Math.hypot(x - player.x, z - player.z);
-  const v = Math.min(1, Math.log10(ls.n) / 4);
-  view.puff(x, y, z, v);
-  if (dist < 8) sfx.slide(v * Math.max(0.2, 1 - dist / 8));
-  if (!game.stats.sawCollapse && ls.n > 150 && dist < 5) {
+  const d = game.lastDig;
+  const mine = d && game.stats.playTime - d.t < 3 && Math.hypot(x - d.x, z - d.z) < 0.8;
+  if (mine) digSlides += ls.n; else if (!d || game.stats.playTime - d.t >= 3) digSlides = 0;
+  if (!game.stats.sawCollapse && mine && digSlides >= 25) {
     game.stats.sawCollapse = true;
-    ui.toast('穴のまわりが崩れた。深く掘るときは、穴を広げながら掘ろう', '', 'collapse');
+    ui.toast('掘った穴のまわりが崩れた。深く掘るときは、穴を広げながら掘ろう', '', 'collapse');
   }
+  if ((ls.n < 30 && !(mine && ls.n >= 5)) || slideT > 0) return;
+  const dist = Math.hypot(x - player.x, z - player.z);
+  slideT = mine ? 0.22 : 0.9; // クレーンなどの崩れは、煙と音を控えめに
+  const v = Math.min(1, Math.log10(ls.n + 1) / 4);
+  view.puff(x, y, z, v);
+  if (dist < 8) sfx.slide(Math.max(0.25, v) * Math.max(0.3, 1 - dist / 8));
+}
+
+const NECK_HINT = {
+  packer: '包装機が頭打ち：包装機を増やしてラインを分けると速くなる',
+  hopper: 'ホッパーが頭打ち：クレーンごとにホッパー（とライン）を分けると速くなる',
+  sorter: '選別機が頭打ち：選別機を増やしてラインを分けると速くなる',
+  crane: 'クレーンが頭打ち：クレーンを足すと速くなる（包装機1台に2台まで）',
+};
+
+/** 工場の行：次の改良、または頭打ちの案内（クレーンがあるときだけ） */
+function factoryLines() {
+  const f = game.factory;
+  if (![...f.machines.values()].some((m) => m.type === 'crane')) return '';
+  const fac = game.nextFactoryUpgrade();
+  if (fac && fac.gain >= 1) return `<br><span class="small muted">次の改良：${fac.u.name}（${fac.u.price.toLocaleString()}円）：いまのラインで 約+${Math.round(fac.gain)}円/秒</span>`;
+  const est = f.estimateRate();
+  if (!est.lines) return '<br><span class="small muted">クレーンのしらすが出荷まで届いていない（建設画面で ⚠ を確認）</span>';
+  const b = est.bottleneck;
+  const neck = Object.keys(b).sort((x, y) => b[y] - b[x])[0];
+  let line = `<br><span class="small muted">いまのライン：毎秒 約${Math.round(est.rate)}匹。${NECK_HINT[neck]}</span>`;
+  if (fac) line += `<br><span class="small muted">次の改良：${fac.u.name}（${fac.u.price.toLocaleString()}円）：クレーンの届く範囲が広がる</span>`;
+  return line;
+}
+
+/** 山を処理し尽くしたのに、まだどこかに残っているとき（最後の端数の案内） */
+function restLine() {
+  if (pile.removedCount < pile.total || game.isCleared()) return '';
+  const where = [];
+  if (game.hand.length) where.push(`手に ${game.hand.length}匹`);
+  if (game.floor.length) where.push(`床に ${game.floor.length}匹`);
+  if (game.factory.count()) where.push(`設備の中に ${game.factory.count()}匹（狙って取り出す）`);
+  const chiri = game.heldChirimon().length || game.floor.some((f) => pile.isChirimon(f.id));
+  const tail = chiri ? 'ちりモンは保護ケースへ、しらすは計量機に入れて包装すると完了' : '全部計量機に入れて包装すると完了';
+  return `<span class="small"><b>山は片付いた！</b> 残り：${where.join('・') || `計量機に ${game.scale.length}匹`} → ${tail}</span><br>`;
 }
 
 function refreshObjective() {
   const steps = tutorialSteps();
-  if (game.tutorial < steps.length) ui.setObjective(`<span class="small muted">目標 ${game.tutorial + 1}/${steps.length}</span><br>${steps[game.tutorial]}`);
-  else {
-    const found = SPECIES.filter((sp) => game.dex[sp.id]?.protected).length;
-    const sug = game.nextSuggestion();
-    const next = sug?.u;
-    const buildHint = !game.factory.machines.size && game.money >= 600
-      ? `<br><span class="small">${isTouch ? '［建設］' : '<b>B</b>'}で建設画面。ホッパー→コンベア→計量機／包装機とつなげば自動で出荷できる</span>` : '';
-    let why = '';
-    if (next?.needs) why = sug.gain >= 1 ? `：いまのラインで 約+${Math.round(sug.gain)}円/秒` : '：クレーンの届く範囲が広がる';
-    // 改良を買い終えても頭打ちなら、増やすとよい設備を案内する
-    const est = game.factory.machines.size ? game.factory.estimateRate() : null;
-    const more = !next?.needs && est && est.bottleneck.packer ? '<br><span class="small muted">包装機が頭打ち：包装機を増やしてラインを分けると速くなる</span>' : '';
-    // 山を処理し尽くしたのに、まだどこかに残っているとき（最後の端数の案内）
-    let rest = '';
-    if (pile.removedCount >= pile.total && !game.isCleared()) {
-      const where = [];
-      if (game.hand.length) where.push(`手に ${game.hand.length}匹`);
-      if (game.floor.length) where.push(`床に ${game.floor.length}匹`);
-      if (game.factory.count()) where.push(`設備の中に ${game.factory.count()}匹（狙って取り出す）`);
-      rest = `<br><span class="small"><b>山は片付いた！</b> 残り：${where.join('・') || `計量機に ${game.scale.length}匹`} → 全部計量機に入れて包装すると完了</span>`;
-    }
-    ui.setObjective(rest + `図鑑 <b>${found}/${SPECIES.length}</b> 種` + (next ? `<br><span class="small muted">次の${next.needs ? '改良' : '道具'}：${next.name}（${next.price.toLocaleString()}円）${why}</span>` : '') + more + buildHint);
+  if (game.tutorial < steps.length) {
+    ui.setObjective(`<span class="small muted">目標 ${game.tutorial + 1}/${steps.length}</span><br>${steps[game.tutorial]}` + factoryLines());
+    return;
   }
+  const found = SPECIES.filter((sp) => game.dex[sp.id]?.protected).length;
+  const tool = game.nextTool();
+  const buildHint = !game.factory.machines.size && game.money >= 600
+    ? `<br><span class="small">${isTouch ? '［建設］' : '<b>B</b>'}で建設画面。ホッパー→コンベア→計量機／包装機とつなげば自動で出荷できる</span>` : '';
+  const toolLine = tool ? `<br><span class="small muted">次の道具：${tool.u.name}（${tool.u.price.toLocaleString()}円）</span>` : '';
+  ui.setObjective(restLine() + `図鑑 <b>${found}/${SPECIES.length}</b> 種` + factoryLines() + toolLine + buildHint);
 }
 
 function advanceTutorial(step) {
@@ -868,6 +894,8 @@ function frame(now) {
     game.stats.playTime += dt;
     game.factory.tick(dt);
     collapseFx(dt);
+    objT += dt;
+    if (objT > 1.5) { objT = 0; refreshObjective(); }
     if (hudDirty) {
       hudT += dt;
       if (hudT > 0.25) { hudT = 0; hudDirty = false; ui.updateHUD(game); view.updatePacks(game.packs); }

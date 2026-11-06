@@ -378,7 +378,8 @@ export class BuildScreen {
       } else if (existing) {
         const def = MACHINES[existing.type];
         const iss = factory.issues(existing);
-        const pw = def.power != null ? ` ${def.power}kW・優先度${PRIO_NAMES[existing.prio]}` : '';
+        const dem = def.power != null ? factory.demandOf(existing) : 0;
+        const pw = def.power != null ? ` ${+dem.toFixed(2)}kW${existing.on && dem < def.power - 1e-9 ? '（待機）' : ''}・優先度${PRIO_NAMES[existing.prio]}` : '';
         this.status = `${def.name}${pw}${iss.length ? '：' + iss.join('／') : '：正常'}`;
       }
     }

@@ -296,6 +296,7 @@ export class Factory {
       this._occupy(m);
     } else m.dir = nd;
     this.version++;
+    this.game.emit('changed');
     return { ok: true };
   }
 
@@ -323,6 +324,7 @@ export class Factory {
   /** 消費電力（届く範囲にしらすがないクレーンは待機電力だけ） */
   demandOf(m) {
     const p = MACHINES[m.type].power;
+    if (!m.on) return 0;
     if (m.type === 'crane') return m.starved ? CRANE_STANDBY_KW : p;
     // 空で何も運んでいない設備は待機電力（1/5）だけ
     const idle = m.type === 'conveyor' ? !m.batches.length
@@ -338,9 +340,9 @@ export class Factory {
     return n;
   }
 
-  cyclePrio(m) { m.prio = (m.prio + 2) % 3; this.version++; }
+  cyclePrio(m) { m.prio = (m.prio + 2) % 3; this.version++; this.game.emit('changed'); }
 
-  toggle(m) { m.on = !m.on; this.version++; this.game.emit('machineToggle', { machine: m }); }
+  toggle(m) { m.on = !m.on; this.version++; this.game.emit('machineToggle', { machine: m }); this.game.emit('changed'); }
 
   contents(m) {
     const ids = [];
@@ -457,20 +459,28 @@ export class Factory {
     const packCap = PACK_SIZE / val('packInterval', BELT.packInterval);
     const caps = { hopper: BELT.hopperBatch / BELT.hopperInterval, sorter: BELT.hopperBatch / MACHINES.sorter.interval };
     const sinks = new Map(); // 行き先 -> { supply, cap, why }
+    // 止まっている・電源のない設備は0、電力不足の設備は配られた割合だけ動く
+    this._allocate(0); // 最新の配置で電力を配り直す（燃料は使わない）
+    const run = (m) => (!m.on || (CONSUMERS.has(m.type) && m.net == null) ? 0 : Math.min(1, m.power ?? 1));
     for (const m of this.machines.values()) {
-      if (m.type !== 'crane' || !m.on || m.starved) continue;
+      if (m.type !== 'crane' || m.starved || !run(m)) continue;
       let node = this._next(m), cap = Infinity, why = 'crane';
       const seen = new Set();
+      let dead = false;
       while (node && node !== 'scale' && node.type !== 'packer' && !seen.has(node)) {
         seen.add(node);
-        if (caps[node.type] != null && caps[node.type] < cap) { cap = caps[node.type]; why = node.type; }
+        const r = run(node);
+        if (!r) { dead = true; break; }
+        const c = (caps[node.type] ?? Infinity) * r;
+        if (c < cap) { cap = c; why = node.type; }
         node = this._next(node);
       }
-      if (!node || seen.has(node)) continue; // 行き止まり・輪
+      if (dead || !node || seen.has(node)) continue; // 停止・行き止まり・輪
+      if (node !== 'scale' && !run(node)) continue;
       const key = node === 'scale' ? 'scale' : node.id;
-      const sinkCap = node === 'scale' ? Infinity : packCap;
-      const e = sinks.get(key) || { supply: 0, cap: sinkCap, why: node === 'scale' ? 'crane' : 'packer', capWhy: [] };
-      e.supply += craneRate;
+      const sinkCap = node === 'scale' ? Infinity : packCap * run(node);
+      const e = sinks.get(key) || { supply: 0, cap: sinkCap, why: node === 'scale' ? 'crane' : 'packer' };
+      e.supply += craneRate * run(m);
       if (cap < e.cap) { e.cap = cap; e.why = why; }
       sinks.set(key, e);
     }

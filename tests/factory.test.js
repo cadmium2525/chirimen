@@ -434,3 +434,17 @@ test('次の改良は、いまのラインで効くものを勧める（クレ�
   for (const id of [...tools, 'fastcrane', 'bigclaw', 'fastpacker']) none.g.upgrades.add(id);
   assert.equal(none.g.nextSuggestion().u.id, 'longarm');
 });
+
+test('見積もりは停止・電源なし・電力不足を反映する', () => {
+  const { f } = makeLine();
+  const base = f.estimateRate().rate;
+  const pk = [...f.machines.values()].find((m) => m.type === 'packer');
+  f.toggle(pk);
+  assert.equal(f.estimateRate().rate, 0);
+  assert.equal(f.demandOf(pk), 0, '停止中は0kW');
+  f.toggle(pk);
+  const gen = [...f.machines.values()].find((m) => m.type === 'generator');
+  f.remove(gen.i, gen.j);
+  const r = f.estimateRate().rate;
+  assert.ok(r < base * 0.9, `電源が足りないと減る ${r.toFixed(1)} < ${base.toFixed(1)}`);
+});

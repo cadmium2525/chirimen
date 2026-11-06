@@ -94,10 +94,15 @@ export class Game {
    * 「次に買うとよいもの」。道具は並び順、工場の改良は「いまのラインでの増え方 ÷ 値段」が最も大きいもの。
    * どれも効かないときは、届く範囲が広がる長いアーム。戻り値 { u, gain }（gain は 円/秒）または null
    */
-  nextSuggestion() {
-    const avail = UPGRADES.filter((u) => !this.has(u.id) && this.unlocked(u));
-    const tool = avail.find((u) => !u.needs);
-    if (tool) return { u: tool, gain: null };
+  nextSuggestion() { return this.nextTool() || this.nextFactoryUpgrade(); }
+
+  nextTool() {
+    const tool = UPGRADES.find((u) => !u.needs && !this.has(u.id) && this.unlocked(u));
+    return tool ? { u: tool, gain: null } : null;
+  }
+
+  nextFactoryUpgrade() {
+    const avail = UPGRADES.filter((u) => u.needs && !this.has(u.id) && this.unlocked(u));
     let best = null;
     for (const u of avail) {
       const gain = this.factory.upgradeGain(u);
@@ -157,6 +162,7 @@ export class Game {
       }, 80);
     }
     if (best < 0) return 0;
+    this.lastDig = { x: p.x, z: p.z, t: this.stats.playTime }; // 崩れの案内用（自分で掘った直後か）
     const taken = [best];
     const t = pile.fishTransform(best, {}); // 取り除く前に位置を調べる（崩れて移った個体は移った先）
     pile.remove(best);
