@@ -454,14 +454,33 @@ export class Factory {
    * extra に工場の改良を渡すと「それを買ったら」の値。bottleneck は頭打ちの理由の集計
    */
   estimateRate(extra = null) {
+    // 電力は、流れる量に見合った平均の消費で配る（瞬間の待機で見積もりが揺れないように）
+    let ratio = this._ratiosFor(null), est;
+    for (let k = 0; k < 6; k++) {
+      est = this._estimate(extra, ratio);
+      ratio = this._ratiosFor(est.use);
+    }
+    est = this._estimate(extra, ratio);
+    est.bottleneck.power = 0;
+    if ([...ratio.values()].some((r) => r < 1 - 1e-9)) {
+      // 電力が足りていたら、どれだけ速いか。差が大きければ電力が頭打ち
+      const full = this._estimate(extra, null);
+      if (full.rate - est.rate > Math.max(1, full.rate * 0.03)) est.bottleneck.power = Math.max(1, est.lines);
+    }
+    est.starved = [...this.machines.values()].some((m) => m.type === 'crane' && m.on && m.starved);
+    return est;
+  }
+
+  /** ratio：設備ごとの電力の割合（null なら電力は足りているものとする） */
+  _estimate(extra, ratio) {
     const val = (key, base) => (extra && extra[key] != null ? extra[key] : this.game.upgradeValue(key, base));
     const craneRate = val('craneGrab', MACHINES.crane.grab) / (val('craneCycle', MACHINES.crane.cycle) + 0.5);
     const packCap = PACK_SIZE / val('packInterval', BELT.packInterval);
     const caps = { hopper: BELT.hopperBatch / BELT.hopperInterval, sorter: BELT.hopperBatch / MACHINES.sorter.interval };
     const sinks = new Map(); // 行き先 -> { supply, cap, why }
     // 止まっている・電源のない設備は0、電力不足の設備は配られた割合だけ動く
-    this._allocate(0); // 最新の配置で電力を配り直す（燃料は使わない）
-    const run = (m) => (!m.on || (CONSUMERS.has(m.type) && m.net == null) ? 0 : Math.min(1, m.power ?? 1));
+    const run = (m) => (!m.on || (CONSUMERS.has(m.type) && m.net == null) ? 0 : ratio ? ratio.get(m) ?? 1 : 1);
+    const paths = []; // [クレーン, 通る設備, 行き先]
     for (const m of this.machines.values()) {
       if (m.type !== 'crane' || m.starved || !run(m)) continue;
       let node = this._next(m), cap = Infinity, why = 'crane';
@@ -483,13 +502,28 @@ export class Factory {
       e.supply += craneRate * run(m);
       if (cap < e.cap) { e.cap = cap; e.why = why; }
       sinks.set(key, e);
+      paths.push([m, seen, node, e, craneRate * run(m)]);
     }
     let rate = 0;
     const bottleneck = { crane: 0, packer: 0, hopper: 0, sorter: 0 };
     for (const e of sinks.values()) {
-      if (e.supply <= e.cap) { rate += e.supply; bottleneck.crane++; } else { rate += e.cap; bottleneck[e.why]++; }
+      e.rate = Math.min(e.supply, e.cap);
+      rate += e.rate;
+      if (e.supply <= e.cap) bottleneck.crane++; else bottleneck[e.why]++;
     }
-    return { rate, lines: sinks.size, bottleneck };
+    // 設備ごとの稼働率（流れる量 ÷ 全力の能力）
+    const flow = new Map();
+    for (const [, seen, node, e, sup] of paths) {
+      const f = e.supply ? e.rate * sup / e.supply : 0;
+      for (const n of seen) flow.set(n, (flow.get(n) || 0) + f);
+      if (node !== 'scale') flow.set(node, (flow.get(node) || 0) + f);
+    }
+    const use = new Map();
+    for (const [n, f] of flow) {
+      const full = n.type === 'packer' ? packCap : caps[n.type];
+      use.set(n, full ? Math.min(1, f / full) : f > 0 ? 1 : 0);
+    }
+    return { rate, lines: sinks.size, bottleneck, use };
   }
 
   /** 工場の改良 u を買うと、いまのラインで1秒に何匹増えるか */
@@ -600,6 +634,34 @@ export class Factory {
       }
       if (m.net == null) m.power = 0;
     }
+  }
+
+  /**
+   * 見積もり用の電力の割合（設備の状態は変えない）。use は設備ごとの稼働率（0〜1）。
+   * 稼働していない時間は待機電力（1/5）。use がなければ全部満負荷
+   */
+  _ratiosFor(use) {
+    if (this.netVersion !== this.version) this._buildNets();
+    const out = new Map();
+    for (const net of this.nets) {
+      const gens = net.gens.filter((g) => g.on).length;
+      let remain = (net.panel ? POWER_PANEL.output : 0) + gens * MACHINES.generator.output;
+      const list = net.consumers.filter((m) => m.on);
+      for (const prio of [2, 1, 0]) {
+        const tier = list.filter((m) => (m.prio ?? 1) === prio);
+        if (!tier.length) continue;
+        const kw = (m) => {
+          const p = MACHINES[m.type].power;
+          if (m.type === 'crane') return m.starved ? CRANE_STANDBY_KW : p;
+          return use ? p * (0.2 + 0.8 * (use.get(m) || 0)) : p;
+        };
+        const need = tier.reduce((a, m) => a + kw(m), 0);
+        const r = need <= remain + 1e-9 ? 1 : Math.max(0, remain / need);
+        for (const m of tier) out.set(m, r);
+        remain = Math.max(0, remain - need * r);
+      }
+    }
+    return out;
   }
 
   /** 供給と需要を配分する。優先度の高い設備から満たし、足りない分は減速・停止 */

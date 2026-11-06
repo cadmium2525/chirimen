@@ -76,7 +76,7 @@ handHeld.frustumCulled = false;
 let handModel = null, handChiri = new THREE.Group();
 let handKey = '';
 let pickAnim = 0;
-let slideT = 0, objT = 0;
+let slideT = 0, slideMineT = 0, objT = 0;
 
 function gloveKind() {
   for (const id of ['glove4', 'glove3', 'glove2', 'glove1']) if (game.has(id)) return id;
@@ -396,7 +396,7 @@ const tutorialSteps = () => {
     `<b>計量機</b>（赤い看板）の受け皿を狙って <b>${k.rel}</b> ではなす`,
     `${PACK_SIZE}匹（${(PACK_SIZE * GRAM_PER_FISH).toFixed(1)}g）たまったら、計量機を狙って <b>${k.act}</b> で包装・出荷`,
     `<b>購入端末</b>で <b>${k.act}</b>。手袋を買って、一度に運べる量を増やそう`,
-    `山には<b>ちりモン</b>が埋まっている。矢印の斜面を手で少しずつ<b>掘り下げる</b>（つまんで ${k.rel} で足元へ）。照準の下の「<b>気配</b>」が示す方へ掘り進め、姿を現したら<b>保護ケース</b>へ`,
+    `山の<b>ちりモン</b>を探そう。照準の下の「<b>気配</b>」の方へ手で掘る（つまんで ${k.rel} で足元へ）。同じ穴を深く掘らず広げながら。見つけたら<b>保護ケース</b>へ`,
   ];
 };
 
@@ -414,23 +414,24 @@ function senseDir(sense) {
 /** 山が崩れたときの砂煙・音と、初めてのときの一度だけの案内（自分で掘った直後の崩れだけ） */
 let digSlides = 0;
 function collapseFx(dt) {
-  slideT -= dt;
+  slideT -= dt; slideMineT -= dt;
   const ls = pile.lastSlide;
   if (!ls.n) return;
   const x = ls.x / ls.n, z = ls.z / ls.n, y = ls.y / ls.n;
   const d = game.lastDig;
   const mine = d && game.stats.playTime - d.t < 3 && Math.hypot(x - d.x, z - d.z) < 0.8;
   if (mine) digSlides += ls.n; else if (!d || game.stats.playTime - d.t >= 3) digSlides = 0;
-  if (!game.stats.sawCollapse && mine && digSlides >= 25) {
+  if (!game.stats.sawCollapse && mine && digSlides >= 12) {
     game.stats.sawCollapse = true;
     ui.toast('掘った穴のまわりが崩れた。深く掘るときは、穴を広げながら掘ろう', '', 'collapse');
   }
-  if ((ls.n < 30 && !(mine && ls.n >= 5)) || slideT > 0) return;
+  if ((ls.n < 30 && !(mine && ls.n >= 5)) || (mine ? slideMineT : slideT) > 0) return;
   const dist = Math.hypot(x - player.x, z - player.z);
-  slideT = mine ? 0.22 : 0.9; // クレーンなどの崩れは、煙と音を控えめに
+  // クレーンなどの崩れは、煙と音を控えめに（間隔をあけ、音も小さく）
+  if (mine) slideMineT = 0.22; else slideT = 4 + Math.random() * 3;
   const v = Math.min(1, Math.log10(ls.n + 1) / 4);
-  view.puff(x, y, z, v);
-  if (dist < 8) sfx.slide(Math.max(0.25, v) * Math.max(0.3, 1 - dist / 8));
+  view.puff(x, y, z, mine ? v : v * 0.6);
+  if (dist < 8) sfx.slide(Math.max(0.25, v) * Math.max(0.3, 1 - dist / 8) * (mine ? 1 : 0.35));
 }
 
 const NECK_HINT = {
@@ -438,20 +439,24 @@ const NECK_HINT = {
   hopper: 'ホッパーが頭打ち：クレーンごとにホッパー（とライン）を分けると速くなる',
   sorter: '選別機が頭打ち：選別機を増やしてラインを分けると速くなる',
   crane: 'クレーンが頭打ち：クレーンを足すと速くなる（包装機1台に2台まで）',
+  power: '電力が足りない：発電機を足すと速くなる（クレーンを足すと、もっと足りなくなる）',
 };
 
 /** 工場の行：次の改良、または頭打ちの案内（クレーンがあるときだけ） */
 function factoryLines() {
   const f = game.factory;
   if (![...f.machines.values()].some((m) => m.type === 'crane')) return '';
+  if (pile.removedCount >= pile.total) return ''; // 山が片付いたら工場の案内はいらない
+  const est = f.estimateRate();
+  if (est.bottleneck.power) return `<br><span class="small muted">いまのライン：毎秒 約${Math.round(est.rate)}匹。${NECK_HINT.power}</span>`;
   const fac = game.nextFactoryUpgrade();
   if (fac && fac.gain >= 1) return `<br><span class="small muted">次の改良：${fac.u.name}（${fac.u.price.toLocaleString()}円）：いまのラインで 約+${Math.round(fac.gain)}円/秒</span>`;
-  const est = f.estimateRate();
+  if (!est.lines && est.starved) return '<br><span class="small muted">クレーンの届く範囲にしらすがない：撤去（全額戻る）して山の別の場所へ移そう</span>';
   if (!est.lines) return '<br><span class="small muted">クレーンのしらすが出荷まで届いていない（建設画面で ⚠ を確認）</span>';
   const b = est.bottleneck;
   const neck = Object.keys(b).sort((x, y) => b[y] - b[x])[0];
   let line = `<br><span class="small muted">いまのライン：毎秒 約${Math.round(est.rate)}匹。${NECK_HINT[neck]}</span>`;
-  if (fac) line += `<br><span class="small muted">次の改良：${fac.u.name}（${fac.u.price.toLocaleString()}円）：クレーンの届く範囲が広がる</span>`;
+  if (fac) line += `<br><span class="small muted fac-extra">次の改良：${fac.u.name}（${fac.u.price.toLocaleString()}円）：クレーンの届く範囲が広がる</span>`;
   return line;
 }
 
@@ -462,7 +467,8 @@ function restLine() {
   if (game.hand.length) where.push(`手に ${game.hand.length}匹`);
   if (game.floor.length) where.push(`床に ${game.floor.length}匹`);
   if (game.factory.count()) where.push(`設備の中に ${game.factory.count()}匹（狙って取り出す）`);
-  const chiri = game.heldChirimon().length || game.floor.some((f) => pile.isChirimon(f.id));
+  const chiri = game.heldChirimon().length || game.floor.some((f) => pile.isChirimon(f.id))
+    || game.scaleHasChiri() || [...game.factory.machines.values()].some((m) => game.factory.hasChiri(m));
   const tail = chiri ? 'ちりモンは保護ケースへ、しらすは計量機に入れて包装すると完了' : '全部計量機に入れて包装すると完了';
   return `<span class="small"><b>山は片付いた！</b> 残り：${where.join('・') || `計量機に ${game.scale.length}匹`} → ${tail}</span><br>`;
 }

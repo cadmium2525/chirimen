@@ -126,7 +126,9 @@ table.stats td:last-child { text-align: right; font-variant-numeric: tabular-num
 #rotateHint { display: none; position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%); background: rgba(10,20,28,0.8); padding: 0.3em 0.8em; border-radius: 8px; font-size: 0.8em; pointer-events: none; }
 @media (orientation: portrait) { body.touch.playing #rotateHint { display: block; } }
 @media (max-height: 500px), (max-width: 700px) {
-  #objective { max-width: min(36vw, 300px); font-size: 0.72em; padding: 0.35em 0.6em; max-height: 46vh; overflow: hidden; }
+  #objective { max-width: min(36vw, 300px); font-size: 0.72em; padding: 0.35em 0.6em; max-height: 52vh; overflow-y: auto; }
+  #objective .fac-extra { display: none; }
+  #toasts { bottom: 7%; }
   #topbar { max-width: calc(100vw - min(36vw, 300px) - 40px); }
   #topbar .chip { font-size: 0.8em; }
 }

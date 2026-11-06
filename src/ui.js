@@ -260,7 +260,7 @@ export class UI {
   closeShop() { this.el.shop.hidden = true; }
 }
 
-const NECK = { packer: '包装機', hopper: 'ホッパー', sorter: '選別機', crane: 'クレーン' };
+const NECK = { power: '電力', packer: '包装機', hopper: 'ホッパー', sorter: '選別機', crane: 'クレーン' };
 
 /** 工場の改良：いまのラインでどれだけ効くか */
 function gainNote(game, u, owned, locked) {

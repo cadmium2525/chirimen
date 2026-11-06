@@ -447,4 +447,33 @@ test('見積もりは停止・電源なし・電力不足を反映する', () =>
   f.remove(gen.i, gen.j);
   const r = f.estimateRate().rate;
   assert.ok(r < base * 0.9, `電源が足りないと減る ${r.toFixed(1)} < ${base.toFixed(1)}`);
+  // 受電盤（3kW）だけにつなぐと、電力が頭打ちと分かる。見積もりは時間がたっても揺れず、実際の流れと2割以内で合う
+  for (const [x, z] of [[0.9, -4.6], [-0.2, -0.4]]) {
+    const [ci, cj] = f.cellOf(x, z);
+    let ok = false;
+    for (let d = 0; d < 4 && !ok; d++) for (const [di, dj] of [[0, 0], [d, 0], [-d, 0], [0, d], [0, -d]]) if (!ok && f.place('pole', ci + di, cj + dj, 0).ok) ok = true;
+    assert.ok(ok, 'pole');
+  }
+  const e0 = f.estimateRate();
+  assert.ok(e0.bottleneck.power >= 1, JSON.stringify(e0.bottleneck));
+  const g = f.game, pile = g.pile;
+  run(f, 30);
+  const before = pile.removedCount - f.count(), seen = new Set();
+  for (let k = 0; k < 40; k++) { run(f, 1.5); seen.add(Math.round(f.estimateRate().rate)); }
+  const real = (pile.removedCount - f.count() - before) / 60;
+  assert.equal(seen.size, 1, `揺れない ${[...seen]}`);
+  const est = f.estimateRate().rate;
+  assert.ok(Math.abs(real - est) / real < 0.2, `見積もり ${est.toFixed(1)} 実際 ${real.toFixed(1)}`);
+});
+
+test('届く範囲が空のクレーンは見積もりで starved と分かる', () => {
+  const { f, pile } = makeLine();
+  pile.repose = Infinity;
+  const crane = [...f.machines.values()].find((m) => m.type === 'crane');
+  for (const c of pile.colsInRadius(f.cx(crane.i), f.cz(crane.j), f.craneReach() + 0.2)) {
+    while (pile.remaining(c)) pile.remove(pile.topId(c));
+  }
+  run(f, 10);
+  const e = f.estimateRate();
+  assert.ok(e.starved && e.lines === 0, JSON.stringify(e));
 });
