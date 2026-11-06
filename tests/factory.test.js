@@ -408,3 +408,29 @@ test('空の設備は待機電力。間隔の端数は持ち越され、高速�
   const perSec = (g.packs - p0) * PACK_SIZE / 10;
   assert.ok(perSec > 235 && perSec < 260, `${perSec}匹/秒`);
 });
+
+test('次の改良は、いまのラインで効くものを勧める（クレーン1台なら高速クレーン、2台なら高速包装機）', () => {
+  const tools = UPGRADES.filter((u) => !u.needs).map((u) => u.id);
+  const one = makeLine();
+  for (const id of [...tools, 'longarm']) one.g.upgrades.add(id);
+  assert.equal(one.g.nextSuggestion().u.id, 'fastcrane');
+  assert.ok(Math.abs(one.f.upgradeGain(UPGRADES.find((u) => u.id === 'fastpacker'))) < 1, 'クレーン1台では高速包装機は効かない');
+  // 見積もりは実際の流れと1割以内で合う
+  const est = one.f.estimateRate().rate;
+  const p0 = one.g.packs; run(one.f, 120);
+  const real = (one.g.packs - p0) * PACK_SIZE / 120;
+  assert.ok(Math.abs(real - est) / est < 0.1, `見積もり ${est.toFixed(1)} 実際 ${real.toFixed(1)}`);
+
+  const two = makeLine();
+  const [ci, cj] = two.f.cellOf(-1.9, 0.1);
+  assert.ok(two.f.place('crane', ci + 1, cj - 1, 1).ok);
+  for (const id of [...tools, 'longarm']) two.g.upgrades.add(id);
+  const s = two.g.nextSuggestion();
+  assert.equal(s.u.id, 'fastpacker');
+  assert.ok(s.gain > 30, `${s.gain}`); // クレーン2台（約206匹/秒）が包装機（約167）で頭打ち
+  assert.equal(two.f.estimateRate().bottleneck.packer, 1);
+  // 全部効かないときは長いアーム
+  const none = makeLine();
+  for (const id of [...tools, 'fastcrane', 'bigclaw', 'fastpacker']) none.g.upgrades.add(id);
+  assert.equal(none.g.nextSuggestion().u.id, 'longarm');
+});

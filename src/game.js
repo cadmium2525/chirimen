@@ -90,6 +90,24 @@ export class Game {
     return this.money >= u.price;
   }
 
+  /**
+   * 「次に買うとよいもの」。道具は並び順、工場の改良は「いまのラインでの増え方 ÷ 値段」が最も大きいもの。
+   * どれも効かないときは、届く範囲が広がる長いアーム。戻り値 { u, gain }（gain は 円/秒）または null
+   */
+  nextSuggestion() {
+    const avail = UPGRADES.filter((u) => !this.has(u.id) && this.unlocked(u));
+    const tool = avail.find((u) => !u.needs);
+    if (tool) return { u: tool, gain: null };
+    let best = null;
+    for (const u of avail) {
+      const gain = this.factory.upgradeGain(u);
+      if (gain >= 1 && (!best || gain / u.price > best.gain / best.u.price)) best = { u, gain };
+    }
+    if (best) return best;
+    const arm = avail.find((u) => u.craneReach);
+    return arm ? { u: arm, gain: 0 } : null;
+  }
+
   /** 工場の改良の効果（買っていなければ既定値） */
   upgradeValue(key, base) {
     let v = base;

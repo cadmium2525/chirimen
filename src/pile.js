@@ -113,6 +113,7 @@ export class PileModel {
 
     this.version = 0; // 変更のたびに増える（描画側のキャッシュ判定用）
     this.dirtyCols = new Set();
+    this.lastSlide = { n: 0, x: 0, z: 0, y: 0 };
     // 途中まで崩れていたセーブは、続きから崩れる
     if (this.removedCount > 0 || this.slid.size) this._queueUnstable();
   }
@@ -244,6 +245,8 @@ export class PileModel {
     if (this.chiri.has(id)) this._moveChiriCol(id, orig, to);
     this._recomputeTop(to);
     this.dirtyCols.add(to);
+    const ls = this.lastSlide;
+    ls.n++; ls.x += this.colCenterX(to); ls.z += this.colCenterZ(to); ls.y += this.topH[to];
     return true;
   }
 
@@ -260,6 +263,7 @@ export class PileModel {
    */
   settle(budget = 8000) {
     let moved = 0;
+    this.lastSlide = { n: 0, x: 0, z: 0, y: 0 }; // 今回滑った数と、行き先の合計（演出用に平均をとる）
     const G = this.G, L = this.layer;
     while (this.settleQ.size && moved < budget) {
       const c = this.settleQ.values().next().value;

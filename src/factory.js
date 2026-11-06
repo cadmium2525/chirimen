@@ -440,6 +440,51 @@ export class Factory {
     return this.isScaleCell(fi, fj);
   }
 
+  /** 出口の先の設備（計量機なら 'scale'、なければ null） */
+  _next(m) {
+    if (!this.outputTarget(m)) return null;
+    const [fi, fj] = this.front(m);
+    return this.get(fi, fj) || 'scale';
+  }
+
+  /**
+   * いまの配置で、クレーンのラインが1秒に運べる匹数の見積もり。
+   * extra に工場の改良を渡すと「それを買ったら」の値。bottleneck は頭打ちの理由の集計
+   */
+  estimateRate(extra = null) {
+    const val = (key, base) => (extra && extra[key] != null ? extra[key] : this.game.upgradeValue(key, base));
+    const craneRate = val('craneGrab', MACHINES.crane.grab) / (val('craneCycle', MACHINES.crane.cycle) + 0.5);
+    const packCap = PACK_SIZE / val('packInterval', BELT.packInterval);
+    const caps = { hopper: BELT.hopperBatch / BELT.hopperInterval, sorter: BELT.hopperBatch / MACHINES.sorter.interval };
+    const sinks = new Map(); // 行き先 -> { supply, cap, why }
+    for (const m of this.machines.values()) {
+      if (m.type !== 'crane' || !m.on || m.starved) continue;
+      let node = this._next(m), cap = Infinity, why = 'crane';
+      const seen = new Set();
+      while (node && node !== 'scale' && node.type !== 'packer' && !seen.has(node)) {
+        seen.add(node);
+        if (caps[node.type] != null && caps[node.type] < cap) { cap = caps[node.type]; why = node.type; }
+        node = this._next(node);
+      }
+      if (!node || seen.has(node)) continue; // 行き止まり・輪
+      const key = node === 'scale' ? 'scale' : node.id;
+      const sinkCap = node === 'scale' ? Infinity : packCap;
+      const e = sinks.get(key) || { supply: 0, cap: sinkCap, why: node === 'scale' ? 'crane' : 'packer', capWhy: [] };
+      e.supply += craneRate;
+      if (cap < e.cap) { e.cap = cap; e.why = why; }
+      sinks.set(key, e);
+    }
+    let rate = 0;
+    const bottleneck = { crane: 0, packer: 0, hopper: 0, sorter: 0 };
+    for (const e of sinks.values()) {
+      if (e.supply <= e.cap) { rate += e.supply; bottleneck.crane++; } else { rate += e.cap; bottleneck[e.why]++; }
+    }
+    return { rate, lines: sinks.size, bottleneck };
+  }
+
+  /** 工場の改良 u を買うと、いまのラインで1秒に何匹増えるか */
+  upgradeGain(u) { return this.estimateRate(u).rate - this.estimateRate().rate; }
+
   /** マスが計量機の本体に重なっているか */
   isScaleCell(i, j) {
     const b = this.cellBox(i, j);
@@ -602,7 +647,8 @@ export class Factory {
 
   // ===== 時間経過 =====
   tick(dt) {
-    this.game.pile.settle(); // 崩れ（1フレームに動かす数には上限がある）
+    // 崩れ：時間に比例して進める（毎秒約40万匹。1フレームの上限 12,000匹）
+    this.game.pile.settle(Math.min(12000, Math.max(400, Math.round(Math.min(dt, 0.25) * 400000))));
     this.acc += Math.min(dt, 0.25);
     while (this.acc >= STEP) {
       this.acc -= STEP;

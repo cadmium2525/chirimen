@@ -250,13 +250,43 @@ test('崩れ：途中で保存した山は、読み込むと続きから崩れ�
 });
 
 test('崩れ：どの山も、最初の形のままなら崩れない（最初から急な斜面があっても）', () => {
-  for (let seed = 1; seed <= 40; seed++) {
-    const p = new PileModel(seed * 7919);
+  const seeds = [3428989595, 387276917];
+  for (let k = 1; k <= 160; k++) seeds.push((k * 2654435761) >>> 0);
+  for (const seed of seeds) {
+    const p = new PileModel(seed);
     p._queueUnstable();
-    assert.equal(p.settleQ.size, 0, `seed ${seed * 7919}`);
+    assert.equal(p.settleQ.size, 0, `seed ${seed}`);
     // 1匹だけ取った山を読み込み直しても、一斉に崩れない
     p.remove(p.topId(p.colAt(p.cx + p.radius * 0.72, 0)));
     const q = PileModel.deserialize(p.serialize());
-    assert.ok(q.settleAll() < 50, `seed ${seed * 7919}`);
+    assert.ok(q.settleAll() < 50, `seed ${seed}`);
   }
+});
+
+test('崩れ：最初から急な斜面の近くを浅く掘っても、崩れは小さく、斜面は最初より大きく急にならない', () => {
+  const p = new PileModel(3428989595);
+  // 最も急な隣どうしを探す
+  let best = -1, bd = 0;
+  for (let c = 0; c < p.nCols - 1; c++) { const d = Math.abs(p.h0[c] - p.h0[c + 1]); if (d > bd) { bd = d; best = c; } }
+  assert.ok(bd > p.repose, '急な斜面がある山');
+  for (const c of [best, best + 1]) { const h = p.topH[c]; while (p.topH[c] > h - 0.03) p.remove(p.topId(c)); }
+  assert.ok(p.settleAll() < 2000);
+  const G = p.G;
+  for (let c = 0; c < p.nCols; c++) {
+    for (const n of [c + 1, c + G]) {
+      if (n >= p.nCols || (n === c + 1 && (c % G) + 1 >= G)) continue;
+      assert.ok(Math.abs(p.topH[c] - p.topH[n]) <= p.pairRepose(c, n) + p.layer * 2, `柱 ${c}-${n}`);
+    }
+  }
+});
+
+test('崩れは時間に比例して進む（1フレームあたりの上限つき）', () => {
+  const p = new PileModel(5);
+  const g = new Game(p);
+  for (let c = 0; c < p.nCols; c++) { if (p.colCenterX(c) < p.cx) continue; while (p.hasAny(c)) { p.remove(p.topId(c)); g.shipped++; } }
+  g.factory.tick(1 / 60);
+  assert.ok(p.lastSlide.n > 5000 && p.lastSlide.n <= 7000, `${p.lastSlide.n}`);
+  g.factory.tick(0.5);
+  assert.ok(p.lastSlide.n <= 12000);
+  assert.ok(g.invariant().ok);
 });

@@ -48,8 +48,16 @@ export class Input {
     if (this.touch) return;
     try {
       const p = this.canvas.requestPointerLock({ unadjustedMovement: true });
-      if (p && p.catch) p.catch(() => this.canvas.requestPointerLock());
-    } catch { this.canvas.requestPointerLock(); }
+      // 失敗（対応していない・連続で要求した など）したら普通のロックを試し、それも失敗したら諦める
+      if (p && p.catch) p.catch(() => this._plainLock());
+    } catch { this._plainLock(); }
+  }
+
+  _plainLock() {
+    try {
+      const q = this.canvas.requestPointerLock();
+      if (q && q.catch) q.catch(() => { /* 次のクリックでまた試す */ });
+    } catch { /* noop */ }
   }
 
   exitLock() { if (document.pointerLockElement) document.exitPointerLock(); }

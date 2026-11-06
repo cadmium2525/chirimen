@@ -76,6 +76,7 @@ handHeld.frustumCulled = false;
 let handModel = null, handChiri = new THREE.Group();
 let handKey = '';
 let pickAnim = 0;
+let slideT = 0;
 
 function gloveKind() {
   for (const id of ['glove4', 'glove3', 'glove2', 'glove1']) if (game.has(id)) return id;
@@ -317,7 +318,8 @@ function updatePrompt() {
     const n = f.contents(m).length;
     cls = f.hasChiri(m) ? 'chiri' : 'can';
     const takes = ['conveyor', 'hopper', 'packer', 'sorter'].includes(m.type);
-    const pw = def.power != null ? `・${def.power}kW 優先度${PRIO_NAMES[m.prio]}` : '';
+    const dem = def.power != null ? f.demandOf(m) : 0;
+    const pw = def.power != null ? `・${+dem.toFixed(2)}kW${dem < def.power - 1e-9 ? '（待機）' : ''} 優先度${PRIO_NAMES[m.prio]}` : '';
     lines.push(`${def.name}（${m.on ? '稼働中' : '停止中'}${pw}）${n ? ` 中身 ${n}匹` : ''}`);
     const iss = f.issues(m).filter((x) => x !== '停止中');
     if (iss.length) lines.push(`⚠ ${iss.join('／')}`);
@@ -394,7 +396,7 @@ const tutorialSteps = () => {
     `<b>計量機</b>（赤い看板）の受け皿を狙って <b>${k.rel}</b> ではなす`,
     `${PACK_SIZE}匹（${(PACK_SIZE * GRAM_PER_FISH).toFixed(1)}g）たまったら、計量機を狙って <b>${k.act}</b> で包装・出荷`,
     `<b>購入端末</b>で <b>${k.act}</b>。手袋を買って、一度に運べる量を増やそう`,
-    `山には<b>ちりモン</b>が埋まっている。矢印の斜面で、同じ場所を<b>深く</b>掘ろう（つまんで ${k.rel} で足元に捨てる）。同じ場所は 2〜3cm 掘っても何もなければ隣へ。照準の下に「<b>気配</b>」が出たら、示す方向を掘り進める。姿を現したらつまんで<b>保護ケース</b>へ`,
+    `山には<b>ちりモン</b>が埋まっている。矢印の斜面を、手で少しずつ<b>掘り下げよう</b>（つまんで ${k.rel} で足元に捨てる）。2〜3cm 掘っても何もなければ隣へ（深い穴は周りが崩れて埋まる）。照準の下に「<b>気配</b>」が出たら、示す方向を掘り進める。姿を現したらつまんで<b>保護ケース</b>へ`,
   ];
 };
 
@@ -409,15 +411,47 @@ function senseDir(sense) {
   return fwd > 0 ? '（奥の方）' : '（手前の方）';
 }
 
+/** 山が崩れたときの砂煙・音と、初めてのときの一度だけの案内 */
+function collapseFx(dt) {
+  slideT -= dt;
+  const ls = pile.lastSlide;
+  if (ls.n < 30 || slideT > 0) return;
+  slideT = 0.22;
+  const x = ls.x / ls.n, z = ls.z / ls.n, y = ls.y / ls.n;
+  const dist = Math.hypot(x - player.x, z - player.z);
+  const v = Math.min(1, Math.log10(ls.n) / 4);
+  view.puff(x, y, z, v);
+  if (dist < 8) sfx.slide(v * Math.max(0.2, 1 - dist / 8));
+  if (!game.stats.sawCollapse && ls.n > 150 && dist < 5) {
+    game.stats.sawCollapse = true;
+    ui.toast('穴のまわりが崩れた。深く掘るときは、穴を広げながら掘ろう', '', 'collapse');
+  }
+}
+
 function refreshObjective() {
   const steps = tutorialSteps();
   if (game.tutorial < steps.length) ui.setObjective(`<span class="small muted">目標 ${game.tutorial + 1}/${steps.length}</span><br>${steps[game.tutorial]}`);
   else {
     const found = SPECIES.filter((sp) => game.dex[sp.id]?.protected).length;
-    const next = UPGRADES.find((u) => !game.has(u.id) && game.unlocked(u));
+    const sug = game.nextSuggestion();
+    const next = sug?.u;
     const buildHint = !game.factory.machines.size && game.money >= 600
       ? `<br><span class="small">${isTouch ? '［建設］' : '<b>B</b>'}で建設画面。ホッパー→コンベア→計量機／包装機とつなげば自動で出荷できる</span>` : '';
-    ui.setObjective(`図鑑 <b>${found}/${SPECIES.length}</b> 種` + (next ? `<br><span class="small muted">次の${next.needs ? '改良' : '道具'}：${next.name}（${next.price.toLocaleString()}円）</span>` : '') + buildHint);
+    let why = '';
+    if (next?.needs) why = sug.gain >= 1 ? `：いまのラインで 約+${Math.round(sug.gain)}円/秒` : '：クレーンの届く範囲が広がる';
+    // 改良を買い終えても頭打ちなら、増やすとよい設備を案内する
+    const est = game.factory.machines.size ? game.factory.estimateRate() : null;
+    const more = !next?.needs && est && est.bottleneck.packer ? '<br><span class="small muted">包装機が頭打ち：包装機を増やしてラインを分けると速くなる</span>' : '';
+    // 山を処理し尽くしたのに、まだどこかに残っているとき（最後の端数の案内）
+    let rest = '';
+    if (pile.removedCount >= pile.total && !game.isCleared()) {
+      const where = [];
+      if (game.hand.length) where.push(`手に ${game.hand.length}匹`);
+      if (game.floor.length) where.push(`床に ${game.floor.length}匹`);
+      if (game.factory.count()) where.push(`設備の中に ${game.factory.count()}匹（狙って取り出す）`);
+      rest = `<br><span class="small"><b>山は片付いた！</b> 残り：${where.join('・') || `計量機に ${game.scale.length}匹`} → 全部計量機に入れて包装すると完了</span>`;
+    }
+    ui.setObjective(rest + `図鑑 <b>${found}/${SPECIES.length}</b> 種` + (next ? `<br><span class="small muted">次の${next.needs ? '改良' : '道具'}：${next.name}（${next.price.toLocaleString()}円）${why}</span>` : '') + more + buildHint);
   }
 }
 
@@ -833,6 +867,7 @@ function frame(now) {
     game.pileTime = (game.pileTime || 0) + dt;
     game.stats.playTime += dt;
     game.factory.tick(dt);
+    collapseFx(dt);
     if (hudDirty) {
       hudT += dt;
       if (hudT > 0.25) { hudT = 0; hudDirty = false; ui.updateHUD(game); view.updatePacks(game.packs); }

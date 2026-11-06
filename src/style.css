@@ -153,8 +153,11 @@ table.stats td:last-child { text-align: right; font-variant-numeric: tabular-num
   .build-top { font-size: 0.78em; gap: 5px; }
   .build-top button { padding: 0.3em 0.7em; }
   .build-tools button { font-size: 0.72em; padding: 0.25em 0.55em; }
-  .build-hint { display: none; }
+  /* 小さい画面でも説明は2行まで出す（撤去の返金・値上がりなどを見落とさないように） */
+  .build-hint { font-size: 0.7em; line-height: 1.25; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 0; }
 }
+.shop-item .gain { color: #7ee2a0; font-weight: 600; }
+.shop-item .gain.none { color: #ffb36b; }
 
 /* ---------- P5：スマホ操作 ---------- */
 * { -webkit-tap-highlight-color: transparent; }

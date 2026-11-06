@@ -249,7 +249,7 @@ export class UI {
       return `<div class="shop-item ${owned ? 'owned' : ''} ${locked ? 'locked' : ''}">
         <div class="n">${u.name}</div>
         <button data-buy="${u.id}" ${owned || !game.canBuy(u) ? 'disabled' : ''}>${owned ? '購入済み' : `${fmt(u.price)}円`}</button>
-        <div class="d">${u.desc}${req}</div></div>`;
+        <div class="d">${u.desc}${req}${gainNote(game, u, owned, locked)}</div></div>`;
     }).join('') + `<div class="shop-note">しらす ${PACK_SIZE}匹 = 1パック = ${PACK_PRICE}円。コンベア・ホッパー・包装機・クレーンは建設画面（PC: B キー / スマホ: 建設ボタン）で設置します。設備には電力が必要です（受電盤 3kW は無料。足りなければ発電機・電柱を建設）。</div>`;
     this.el.shopList.querySelectorAll('[data-buy]').forEach((b) => b.addEventListener('click', () => {
       onBuy(b.dataset.buy);
@@ -258,6 +258,19 @@ export class UI {
   }
 
   closeShop() { this.el.shop.hidden = true; }
+}
+
+const NECK = { packer: '包装機', hopper: 'ホッパー', sorter: '選別機', crane: 'クレーン' };
+
+/** 工場の改良：いまのラインでどれだけ効くか */
+function gainNote(game, u, owned, locked) {
+  if (!u.needs || owned || locked) return '';
+  if (u.craneReach) return '<br><span class="gain">いまのラインでの稼ぎは変わらない（届く範囲が広がる）</span>';
+  const gain = game.factory.upgradeGain(u);
+  if (gain >= 1) return `<br><span class="gain">いまのラインで 約+${Math.round(gain)}円/秒</span>`;
+  const b = game.factory.estimateRate().bottleneck;
+  const neck = Object.keys(b).filter((k) => k !== 'crane').sort((x, y) => b[y] - b[x])[0];
+  return `<br><span class="gain none">いまのラインでは効果なし${b[neck] ? `（${NECK[neck]}が頭打ち）` : ''}</span>`;
 }
 
 export function helpHTML(touch) {

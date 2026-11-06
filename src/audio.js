@@ -30,7 +30,31 @@ function tone(freq, dur, type = 'sine', vol = 0.15, when = 0, slide = 0) {
   o.stop(t + dur + 0.02);
 }
 
+let noiseBuf = null;
+/** 砂が流れるような音（フィルターをかけた雑音） */
+function noise(dur, vol, freq) {
+  if (!enabled) return;
+  const a = ac();
+  if (!a) return;
+  if (!noiseBuf) {
+    noiseBuf = a.createBuffer(1, a.sampleRate, a.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const t = a.currentTime;
+  const src = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+  src.buffer = noiseBuf;
+  f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = 0.8;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  src.connect(f).connect(g).connect(a.destination);
+  src.start(t, Math.random() * 0.5);
+  src.stop(t + dur + 0.05);
+}
+
 export const sfx = {
+  slide: (v = 0.5) => noise(0.35 + v * 0.4, 0.015 + v * 0.05, 900 - v * 400),
   unlock: () => ac(),
   pick: () => tone(880, 0.06, 'triangle', 0.08, 0, 1.4),
   scoop: () => { tone(220, 0.12, 'sawtooth', 0.05, 0, 0.6); tone(330, 0.1, 'triangle', 0.05, 0.03); },

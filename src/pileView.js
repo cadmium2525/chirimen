@@ -21,6 +21,7 @@ export class PileView {
     this.simpleMat = makeShirasuMaterial(true);
     this.pileTex = makePileTexture();
     this.sparkleTex = makeSparkleTexture();
+    this._initDust();
     this.chiriMeshes = new Map(); // id -> Object3D（山の上の露出ちりモン）
     this.sparkles = [];
     this.lastBuildPos = new THREE.Vector3(1e9, 0, 0);
@@ -181,8 +182,56 @@ export class PileView {
   }
 
   /** 毎フレーム呼ぶ。必要なときだけ近景インスタンスを作り直す */
+  // ===== 崩れの砂煙 =====
+  _initDust() {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 32;
+    const g = cv.getContext('2d');
+    const gr = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+    gr.addColorStop(0, 'rgba(236,224,196,0.9)');
+    gr.addColorStop(1, 'rgba(236,224,196,0)');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, 32, 32);
+    this.dustTex = new THREE.CanvasTexture(cv);
+    this.dust = [];
+    for (let i = 0; i < 24; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.dustTex, transparent: true, depthWrite: false, opacity: 0 }));
+      sp.visible = false;
+      this.scene.add(sp);
+      this.dust.push({ sp, age: 0, max: 0, vy: 0, s0: 0 });
+    }
+  }
+
+  /** 崩れた場所に砂煙を出す（amount 0〜1） */
+  puff(x, y, z, amount) {
+    const n = 2 + Math.round(amount * 4);
+    for (let k = 0; k < n; k++) {
+      const d = this.dust.find((e) => !e.sp.visible);
+      if (!d) return;
+      d.age = 0; d.max = 0.9 + Math.random() * 0.6;
+      d.vy = 0.08 + Math.random() * 0.1; d.s0 = 0.15 + amount * 0.3;
+      d.sp.position.set(x + (Math.random() - 0.5) * 0.4, y + 0.02, z + (Math.random() - 0.5) * 0.4);
+      d.sp.visible = true;
+    }
+  }
+
+  _updateDust(dt) {
+    for (const d of this.dust) {
+      if (!d.sp.visible) continue;
+      d.age += dt;
+      const t = d.age / d.max;
+      if (t >= 1) { d.sp.visible = false; continue; }
+      d.sp.position.y += d.vy * dt;
+      const sc = d.s0 * (1 + t * 1.5);
+      d.sp.scale.set(sc, sc, 1);
+      d.sp.material.opacity = 0.5 * (1 - t);
+    }
+  }
+
   update(playerPos, game, time, aid) {
     const pile = this.pile;
+    this._updateDust(Math.min(0.1, Math.max(0, time - (this._lastT ?? time))));
+    this._lastT = time;
     const moved = this.lastBuildPos.distanceToSquared(playerPos) > 0.25 * 0.25;
     if (pile.version !== this.lastVersion) {
       this._updateSurface(false);
@@ -323,6 +372,16 @@ export class PileView {
     const m = this._m, e = this._e, quat = this._q, p = this._p, s = this._s;
     let n = 0;
     const keep = new Set();
+    // 床の個体が描ける数を超えたら、入れ物を大きくする（超えた分が見えなくならないように）
+    const cap = this.floorMesh.instanceMatrix.count;
+    if (game.floor.length > cap && cap < 64000) {
+      const next = Math.min(64000, cap * 2 >= game.floor.length ? cap * 2 : 2 ** Math.ceil(Math.log2(game.floor.length)));
+      this.scene.remove(this.floorMesh);
+      this.floorMesh.dispose();
+      this.floorMesh = new THREE.InstancedMesh(this.detailGeo, this.detailMat, next);
+      this.floorMesh.frustumCulled = false;
+      this.scene.add(this.floorMesh);
+    }
     for (const f of game.floor) {
       const y = Math.max(0, pile.heightAt(f.x, f.z)) + 0.003;
       if (pile.isChirimon(f.id)) {
