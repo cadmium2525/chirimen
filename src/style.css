@@ -66,7 +66,8 @@ button:disabled { opacity: 0.45; cursor: default; }
 .tbtn.big { width: 96px; height: 96px; font-size: 1.05em; border-color: var(--accent); }
 .tbtn.small { width: 56px; height: 56px; font-size: 0.75em; }
 #btnPick { grid-area: pick; } #btnRelease { grid-area: rel; } #btnAction { grid-area: act; justify-self: center; } #btnTool { grid-area: tool; justify-self: end; }
-.tbtn.menu { position: absolute; top: calc(max(10px, env(safe-area-inset-top)) + 44px); left: max(10px, env(safe-area-inset-left)); width: 46px; height: 46px; border-radius: 12px; }
+/* ≡・建設ボタンは左上の表示（--tb：その下端）の下に置く（表示が2行になっても隠れない） */
+.tbtn.menu { position: absolute; top: calc(var(--tb, calc(max(10px, env(safe-area-inset-top)) + 34px)) + 10px); left: max(10px, env(safe-area-inset-left)); width: 46px; height: 46px; border-radius: 12px; }
 body.left-handed #btns { right: auto; left: max(16px, env(safe-area-inset-left)); }
 body.left-handed #stickZone { left: auto; right: 0; }
 body.left-handed #stick { left: calc(100% - 110px); }
@@ -129,20 +130,25 @@ table.stats td:last-child { text-align: right; font-variant-numeric: tabular-num
 @media (max-height: 500px), (max-width: 700px) {
   #objective { max-width: min(36vw, 300px); font-size: 0.72em; padding: 0.35em 0.6em; max-height: 52vh; overflow: hidden; }
   #objective .fac-extra { display: none; }
-  /* 小さい画面では照準の上（操作ボタン・照準の説明と重ならない） */
-  #toasts { bottom: calc(50% + 22px); width: max-content; max-width: 56vw; }
+  /* 小さい画面では照準の上、目標欄の手前まで（操作ボタン・照準の説明・目標欄と重ならない） */
+  #toasts { bottom: calc(50% + 22px); left: max(10px, env(safe-area-inset-left)); right: calc(min(36vw, 300px) + 24px); transform: none; }
+  body.touch #toasts { left: calc(max(10px, env(safe-area-inset-left)) + 60px); }
   .toast { font-size: 0.85em; padding: 0.35em 0.7em; }
+  .toast.find { font-size: 0.95em; }
+  /* ちりモンを持っている警告は画面の下（通知と重ならない） */
+  #warn { top: auto; bottom: max(6px, env(safe-area-inset-bottom)); font-size: 0.8em; max-width: 46vw; }
   #topbar { max-width: calc(100vw - min(36vw, 300px) - 40px); }
   #topbar .chip { font-size: 0.8em; }
 }
-@media (max-height: 300px) { #objective .fac-tut { display: none; } #toasts { bottom: 4px; } }
+@media (max-height: 300px) { #objective .fac-tut { display: none; } #toasts { bottom: 4px; } #warn { top: 22%; bottom: auto; } }
 @media (max-height: 500px) {
   .tbtn { width: 60px; height: 60px; } .tbtn.big { width: 80px; height: 80px; } .tbtn.small { width: 48px; height: 48px; }
   h1 { font-size: 2em; }
 }
 
 /* ---------- 建設画面 ---------- */
-.tbtn.menu.build { top: calc(max(10px, env(safe-area-inset-top)) + 98px); font-size: 0.72em; }
+.tbtn.menu.build { top: calc(var(--tb, calc(max(10px, env(safe-area-inset-top)) + 34px)) + 64px); font-size: 0.72em; }
+body.touch #tool { display: none; } /* タッチでは道具ボタンがあるので、キー表記の道具チップは出さない */
 #build { padding: 8px; align-items: stretch; background: rgba(5, 12, 18, 0.9); }
 .build-wrap { display: flex; flex-direction: column; width: 100%; max-width: 1200px; margin: 0 auto; gap: 6px; }
 .build-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

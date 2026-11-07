@@ -40,8 +40,10 @@ export class UI {
     const hasScoop = game.scoopCap() > 0;
     this.el.tool.hidden = !hasScoop;
     this.el.tool.textContent = hasScoop ? (game.tool === 'scoop' ? '[1] 手 / [2] スコップ ◀' : '[1] 手 ◀ / [2] スコップ') : '';
-    this.el.warn.textContent = chiri ? '⚠ ちりモンを持っている！ 保護ケースへ運ぼう' : '';
+    const small = matchMedia('(max-height: 500px), (max-width: 700px)').matches;
+    this.el.warn.textContent = !chiri ? '' : small ? '⚠ ちりモンは保護ケースへ' : '⚠ ちりモンを持っている！ 保護ケースへ運ぼう';
     this.btnTool.hidden = !hasScoop;
+    this.layoutTop();
   }
 
   setPower(ps) {
@@ -50,10 +52,19 @@ export class UI {
     if (!ps) return;
     el.textContent = `⚡ ${ps.demand.toFixed(1)}/${ps.supply.toFixed(1)}kW${ps.unpowered ? ` 電源なし${ps.unpowered}` : ''}`;
     el.style.color = ps.short || ps.unpowered ? '#ff7a6b' : '#7ee2a0';
+    this.layoutTop();
   }
 
   setObjective(html) {
     if (this._obj !== html) { this.el.objective.innerHTML = html; this._obj = html; }
+  }
+
+  /** 左上の表示の下端を CSS 変数 --tb に（≡・建設ボタンをその下に置く） */
+  layoutTop() {
+    const tb = document.getElementById('topbar');
+    if (!tb) return;
+    const y = Math.round(tb.getBoundingClientRect().bottom);
+    if (y > 0 && y !== this._tb) { this._tb = y; document.documentElement.style.setProperty('--tb', `${y}px`); }
   }
 
   toast(text, type = '', key = null) {
@@ -68,9 +79,16 @@ export class UI {
     d.className = `toast ${type}`;
     d.textContent = text;
     this.el.toasts.prepend(d);
-    // 小さい画面では2件まで（照準や操作ボタンに届かないように）
-    const max = matchMedia('(max-height: 500px), (max-width: 700px)').matches ? 2 : 4;
-    while (this.el.toasts.children.length > max) this.el.toasts.lastChild.remove();
+    // 小さい画面では1件まで（照準や目標欄に届かないように）。押し出すときは、発見の通知を残す
+    const max = matchMedia('(max-height: 500px), (max-width: 700px)').matches ? 1 : 4;
+    while (this.el.toasts.children.length > max) {
+      const kids = [...this.el.toasts.children];
+      const drop = kids.slice(1).reverse().find((x) => !x.classList.contains('find'))
+        || (d.classList.contains('find') ? kids[kids.length - 1] : d);
+      if (drop === d && !kids.slice(1).length) break;
+      clearTimeout(drop._t);
+      drop.remove();
+    }
     d._t = setTimeout(() => d.remove(), 3300);
   }
 

@@ -396,7 +396,7 @@ const tutorialSteps = () => {
     `<b>計量機</b>（赤い看板）の受け皿を狙って <b>${k.rel}</b> ではなす`,
     `${PACK_SIZE}匹（${(PACK_SIZE * GRAM_PER_FISH).toFixed(1)}g）たまったら、計量機を狙って <b>${k.act}</b> で包装・出荷`,
     `<b>購入端末</b>で <b>${k.act}</b>。手袋を買って、一度に運べる量を増やそう`,
-    `山の<b>ちりモン</b>を探そう。照準の下の「<b>気配</b>」の方へ手で掘る（つまんで ${k.rel} で足元へ）。同じ所ばかり深く掘らず、穴を広げよう。見つけたら<b>保護ケース</b>へ`,
+    `山の<b>ちりモン</b>を探そう。「<b>気配</b>」の方へ手で掘る（つまんで ${k.rel} で足元へ）。同じ所ばかり掘らず穴を広げよう。見つけたら<b>保護ケース</b>へ`,
   ];
 };
 
@@ -941,6 +941,7 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
+  ui.layoutTop();
 });
 
 // ---------- 起動 ----------

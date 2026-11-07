@@ -476,6 +476,17 @@ test('発電機を止めると見積もりで分かり、動かすと戻る（�
   assert.ok(e.genOff && (e.bottleneck.power || !e.lines), JSON.stringify(e));
   f.toggle(gen);
   assert.ok(!f.estimateRate().genOff && Math.abs(f.estimateRate().rate - base) < 1e-9);
+  // ほかの原因（コンベアが欠けている）でラインが届いていなければ、発電機の案内は出さない
+  const belt = [...f.machines.values()].find((m) => m.type === 'conveyor');
+  f.remove(belt.i, belt.j);
+  f.toggle(gen);
+  const e2 = f.estimateRate();
+  assert.ok(!e2.genOff && !e2.lines, JSON.stringify(e2));
+  // 状態を直接書き換えても、使い回しで古い値を返さない
+  f.toggle(gen);
+  const pk = [...f.machines.values()].find((m) => m.type === 'packer');
+  pk.on = false;
+  assert.equal(f.estimateRate().rate, 0);
 });
 
 test('届く範囲が空のクレーンは見積もりで starved と分かる', () => {

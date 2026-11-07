@@ -454,15 +454,45 @@ export class Factory {
    * extra に工場の改良を渡すと「それを買ったら」の値。bottleneck は頭打ちの理由の集計
    */
   estimateRate(extra = null) {
-    // 配置・改良・クレーンの空振りが変わっていなければ、前の結果を使い回す（目標欄やショップで何度も呼ばれる）
-    const cranes = [...this.machines.values()].filter((m) => m.type === 'crane');
-    const key = `${this.version}|${[...this.game.upgrades].join()}|${cranes.map((m) => (m.starved ? 1 : 0)).join('')}`;
+    // 配置・改良・設備の状態（動いているか・向き・優先度・クレーンの空振り）が変わっていなければ、
+    // 前の結果を使い回す（目標欄やショップで何度も呼ばれる）
+    const all = [...this.machines.values()];
+    const state = all.map((m) => `${m.on ? 1 : 0}${m.dir ?? ''}${m.prio ?? ''}${m.starved ? 1 : 0}`).join('');
+    const key = `${this.version}|${[...this.game.upgrades].join()}|${state}`;
     if (this._estKey !== key) { this._estKey = key; this._estCache = new Map(); }
     const ck = extra ? extra.id || JSON.stringify(extra) : '';
     if (this._estCache.has(ck)) return this._estCache.get(ck);
-    // 電力は、流れる量に見合った平均の消費で配る（瞬間の待機で見積もりが揺れないように）。
-    // 行き来しないよう前回との平均をとりながら、落ち着くまでくり返す
-    let ratio = this._ratiosFor(null), est;
+    const { est, ratio } = this._solve(extra);
+    est.bottleneck.power = 0;
+    if ([...ratio.values()].some((r) => r < 1 - 1e-9)) {
+      // 電力が足りていたら、どれだけ速いか。差が大きければ電力が頭打ち
+      const full = this._estimate(extra, null);
+      if (full.rate - est.rate > Math.max(1, full.rate * 0.03)) est.bottleneck.power = Math.max(1, est.lines);
+    }
+    est.starved = all.some((m) => m.type === 'crane' && m.on && m.starved);
+    // 止めた発電機を動かせば速くなるときだけ「発電機を動かそう」（ほかの原因を隠さないように）
+    est.genOff = false;
+    const off = all.filter((m) => m.type === 'generator' && !m.on);
+    if (off.length) {
+      for (const g of off) g.on = true;
+      try {
+        const on = this._solve(extra).est.rate;
+        est.genOff = on - est.rate > Math.max(1, est.rate * 0.03);
+      } finally {
+        for (const g of off) g.on = false;
+      }
+    }
+    this._estCache.set(ck, est);
+    return est;
+  }
+
+  /**
+   * 電力は、流れる量に見合った平均の消費で配る（瞬間の待機で見積もりが揺れないように）。
+   * 行き来しないよう前回との平均をとりながら、落ち着くまでくり返す。落ち着かなければ最後の2回の平均
+   */
+  _solve(extra) {
+    let ratio = this._ratiosFor(null), prev = null, est;
+    let settled = false;
     for (let k = 0; k < 40; k++) {
       est = this._estimate(extra, ratio);
       const next = this._ratiosFor(est.use);
@@ -472,20 +502,19 @@ export class Factory {
         diff = Math.max(diff, Math.abs(avg - old));
         next.set(m, avg);
       }
+      prev = ratio;
       ratio = next;
-      if (diff < 1e-4) break;
+      if (diff < 1e-4) { settled = true; break; }
     }
-    est = this._estimate(extra, ratio);
-    est.bottleneck.power = 0;
-    if ([...ratio.values()].some((r) => r < 1 - 1e-9)) {
-      // 電力が足りていたら、どれだけ速いか。差が大きければ電力が頭打ち
-      const full = this._estimate(extra, null);
-      if (full.rate - est.rate > Math.max(1, full.rate * 0.03)) est.bottleneck.power = Math.max(1, est.lines);
+    if (!settled && prev) {
+      const a = this._estimate(extra, prev), b = this._estimate(extra, ratio);
+      const mid = new Map();
+      for (const [m, r] of ratio) mid.set(m, ((prev.get(m) ?? 1) + r) / 2);
+      est = this._estimate(extra, mid);
+      est.rate = (a.rate + b.rate) / 2;
+      return { est, ratio: mid };
     }
-    est.starved = cranes.some((m) => m.on && m.starved);
-    est.genOff = [...this.machines.values()].some((m) => m.type === 'generator' && !m.on);
-    this._estCache.set(ck, est);
-    return est;
+    return { est: this._estimate(extra, ratio), ratio };
   }
 
   /** ratio：設備ごとの電力の割合（null なら電力は足りているものとする） */
@@ -570,7 +599,7 @@ export class Factory {
       if (this.get(fi, fj) || this._staticAt(fi, fj)) out.push('出荷口がふさがれている');
     }
     if (m.type === 'sorter' && m.bin.length >= MACHINES.sorter.bin) out.push('回収箱がいっぱい（ちりモンを取り出して）');
-    if (m.type === 'crane' && m.on && m.starved) out.push('届く範囲にしらすがない（撤去すると全額戻るので、山の別の場所へ移そう）');
+    if (m.type === 'crane' && m.on && m.starved) out.push('届く範囲にしらすがない（撤去すると払った分が戻るので、山の残っている場所へ移そう）');
     if (m.type === 'packer' && m.buffer.length >= MACHINES.packer.capacity * 0.9) out.push('包装が追いつかない（包装機を増やす／高速包装機）');
     if (m.type === 'generator' && m.on && this.fuelDebt >= 1 && this.game.money < 1) out.push(`燃料費を後払い中（${Math.floor(this.fuelDebt)}円）`);
     if (!m.on) out.push('停止中');
